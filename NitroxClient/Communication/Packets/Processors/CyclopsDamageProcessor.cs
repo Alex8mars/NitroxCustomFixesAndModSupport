@@ -161,6 +161,7 @@ namespace NitroxClient.Communication.Packets.Processors
                             if (keyValuePair.Value.spawnNodes[nodeIndex].childCount > 0)
                             {
                                 keyValuePair.Value.spawnNodes[nodeIndex].GetComponentInChildren<Fire>().Douse(10000);
+                                Log.Info($"Synced Cyclops fire douse for {subRootId} at {keyValuePair.Key} node {nodeIndex}");
                             }
                         }
                         else
@@ -168,6 +169,7 @@ namespace NitroxClient.Communication.Packets.Processors
                             if (keyValuePair.Value.spawnNodes[nodeIndex].childCount < 1)
                             {
                                 fires.Create(new CyclopsFireData(fireNode.FireId, subRootId, fireNode.Room, fireNode.NodeIndex));
+                                Log.Info($"Synced Cyclops fire create for {subRootId} at {fireNode.Room} node {fireNode.NodeIndex}");
                             }
                         }
                     }
