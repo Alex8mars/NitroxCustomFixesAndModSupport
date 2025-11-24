@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Nitrox.Model.Helper;
@@ -21,11 +22,18 @@ public sealed class EpicGames : IGamePlatform
     public static async Task<ProcessEx> StartGameAsync(string pathToGameExe, string launchArguments)
     {
         // Normally should call StartPlatformAsync first. But Subnautica will start without EGS.
+        string? gameDirectory = Path.GetDirectoryName(pathToGameExe);
+        Dictionary<string, string> environment = new()
+        {
+            [NitroxUser.LAUNCHER_PATH_ENV_KEY] = NitroxUser.LauncherPath
+        };
+        BepInExIntegration.ApplyEnvironment(environment, gameDirectory);
+
         return await Task.FromResult(
             ProcessEx.Start(
                 pathToGameExe,
-                [(NitroxUser.LAUNCHER_PATH_ENV_KEY, NitroxUser.LauncherPath)],
-                Path.GetDirectoryName(pathToGameExe),
+                environment,
+                gameDirectory,
                 $"-EpicPortal -epicuserid=0 {launchArguments}")
         );
     }
