@@ -33,7 +33,7 @@ public sealed class EpicGames : IGamePlatform
         return await Task.FromResult(
             ProcessEx.Start(
                 pathToGameExe,
-                environment.Select(kv => (kv.Key, kv.Value)),
+                environment,
                 gameDirectory,
                 $"-EpicPortal -epicuserid=0 {launchArguments}")
         );

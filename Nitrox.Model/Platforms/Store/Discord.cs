@@ -1,6 +1,5 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Nitrox.Model.Helper;
 using Nitrox.Model.Platforms.Discovery.Models;
@@ -31,7 +30,7 @@ public sealed class Discord : IGamePlatform
         return await Task.FromResult(
             ProcessEx.Start(
                 pathToGameExe,
-                environment.Select(kv => (kv.Key, kv.Value)),
+                environment,
                 gameDirectory,
                 launchArguments
             )
