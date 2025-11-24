@@ -24,7 +24,7 @@ public class AI
     /// </summary>
     private readonly HashSet<Type> creatureActionWhitelist =
     [
-        typeof(AttackLastTarget), typeof(RangedAttackLastTarget), typeof(AttackCyclops), typeof(Poop)
+        typeof(AttackLastTarget), typeof(RangedAttackLastTarget), typeof(AttackCyclops), typeof(Poop), typeof(AttachAndSuck)
     ];
 
     /// <summary>
@@ -33,7 +33,7 @@ public class AI
     /// </summary>
     private readonly HashSet<Type> syncedCreatureWhitelist =
     [
-        typeof(ReaperLeviathan), typeof(SeaDragon), typeof(SeaTreader), typeof(GhostLeviathan)
+        typeof(ReaperLeviathan), typeof(SeaDragon), typeof(SeaTreader), typeof(GhostLeviathan), typeof(Bleeder)
     ];
 
     public AI(IPacketSender packetSender)
@@ -47,7 +47,7 @@ public class AI
 
     public void BroadcastNewAction(NitroxId creatureId, Creature creature, CreatureAction newAction)
     {
-        if (!syncedCreatureWhitelist.Contains(creature.GetType()))
+        if (!IsCreatureWhitelisted(creature))
         {
             return;
         }
@@ -151,11 +151,11 @@ public class AI
 
     public bool IsCreatureActionWhitelisted(CreatureAction creatureAction)
     {
-        return creatureActionWhitelist.Contains(creatureAction.GetType());
+        return creatureActionWhitelist.Any(type => type.IsInstanceOfType(creatureAction));
     }
 
     public bool IsCreatureWhitelisted(Creature creature)
     {
-        return syncedCreatureWhitelist.Contains(creature.GetType());
+        return syncedCreatureWhitelist.Any(type => type.IsInstanceOfType(creature));
     }
 }
