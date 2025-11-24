@@ -271,7 +271,7 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             // Running through Steam is fine if single instance.
             return App.InstantLaunch is { PlayerNames.Length: > 1 };
         }
-        if (args.Contains("-vrmode none", StringComparison.OrdinalIgnoreCase))
+        if (args.IndexOf("-vrmode none", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             if (keyValueStore.GetIsMultipleGameInstancesAllowed())
             {
