@@ -19,6 +19,7 @@ namespace NitroxClient.GameLogic
     public class Fires
     {
         private readonly IPacketSender packetSender;
+        private readonly Cyclops cyclops;
 
         /// <summary>
         /// Used to reduce the <see cref="FireDoused"/> packet spam as fires are being doused. A packet is only sent after
@@ -31,9 +32,10 @@ namespace NitroxClient.GameLogic
         /// </summary>
         private const float FIRE_DOUSE_AMOUNT_TRIGGER = 5f;
 
-        public Fires(IPacketSender packetSender)
+        public Fires(IPacketSender packetSender, Cyclops cyclops)
         {
             this.packetSender = packetSender;
+            this.cyclops = cyclops;
         }
 
         /// <summary>
@@ -44,7 +46,7 @@ namespace NitroxClient.GameLogic
         {
             if (!fire.TryGetIdOrWarn(out NitroxId fireId))
             {
-                return;
+                fireId = NitroxEntity.GenerateNewId(fire.gameObject);
             }
             if (!fire.fireSubRoot.TryGetIdOrWarn(out NitroxId subRootId))
             {
@@ -53,6 +55,8 @@ namespace NitroxClient.GameLogic
 
             CyclopsFireCreated packet = new CyclopsFireCreated(fireId, subRootId, room.roomLinks.room, nodeIndex);
             packetSender.Send(packet);
+            cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
+            Log.Info($"Sent Cyclops fire create for {subRootId} at {room.roomLinks.room} node {nodeIndex} ({fireId})");
         }
 
         /// <summary>
@@ -64,6 +68,8 @@ namespace NitroxClient.GameLogic
             {
                 return;
             }
+
+            fire.fireSubRoot.TryGetIdOrWarn(out NitroxId subRootId);
 
             // Temporary packet limiter
             if (!fireDouseAmount.ContainsKey(fireId))
@@ -81,6 +87,12 @@ namespace NitroxClient.GameLogic
 
                     FireDoused packet = new FireDoused(fireId, douseAmount);
                     packetSender.Send(packet);
+                    cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
+                    Log.Info($"Sent Cyclops fire douse for {fireId} (sub {subRootId}, amount {douseAmount})");
+                }
+                else
+                {
+                    fireDouseAmount[fireId] = summedDouseAmount;
                 }
             }
         }
@@ -100,11 +112,11 @@ namespace NitroxClient.GameLogic
             {
                 Fire existingFire = transform2.GetComponentInChildren<Fire>();
 
-                if (existingFire.TryGetNitroxId(out NitroxId existingFireId) && existingFireId != fireData.CyclopsId)
+                if (existingFire.TryGetNitroxId(out NitroxId existingFireId) && existingFireId != fireData.FireId)
                 {
-                    Log.Error($"[Fires.Create Fire already exists at node index {fireData.NodeIndex}! Replacing existing Fire Id {existingFireId} with Id {fireData.CyclopsId}]");
+                    Log.Error($"[Fires.Create Fire already exists at node index {fireData.NodeIndex}! Replacing existing Fire Id {existingFireId} with Id {fireData.FireId}]");
 
-                    NitroxEntity.SetNewId(existingFire.gameObject, fireData.CyclopsId);
+                    NitroxEntity.SetNewId(existingFire.gameObject, fireData.FireId);
                 }
 
                 return;
@@ -124,12 +136,9 @@ namespace NitroxClient.GameLogic
             PrefabSpawn component = transform2.GetComponent<PrefabSpawn>();
             if (!component)
             {
-                return;
-            }
-            else
-            {
                 Log.Error(
                     $"[{nameof(CyclopsFireCreatedProcessor)} Cannot create new Cyclops fire! PrefabSpawn component could not be found in fire node! Fire Id: {fireData.FireId} SubRoot Id: {fireData.CyclopsId} Room: {fireData.Room} NodeIndex: {fireData.NodeIndex}]");
+                return;
             }
 
             component.SpawnManual(delegate(GameObject fireGO)
