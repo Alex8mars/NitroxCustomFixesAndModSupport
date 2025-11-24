@@ -1,5 +1,7 @@
 ﻿using System;
+using NitroxClient.Extensions;
 using NitroxClient.GameLogic;
+using Nitrox.Model.Logger;
 using UnityEngine;
 using static PlayerCinematicController;
 
@@ -59,6 +61,10 @@ public class RemotePlayerCinematicController : MonoBehaviour, IManagedUpdateBeha
     private bool subscribed;
 
     private bool _animState;
+
+    private float cinematicModeStartedAt = -1f;
+
+    private const float MAX_CINEMATIC_DURATION = 12f;
 
     public static int cinematicModeCount { get; private set; }
 
@@ -242,6 +248,7 @@ public class RemotePlayerCinematicController : MonoBehaviour, IManagedUpdateBeha
 
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             cinematicModeActive = true;
+            cinematicModeStartedAt = Time.time;
             if (setplayer != null)
             {
                 SetPlayer(setplayer);
@@ -307,6 +314,7 @@ public class RemotePlayerCinematicController : MonoBehaviour, IManagedUpdateBeha
             animState = false;
             state = State.None;
             cinematicModeActive = false;
+            cinematicModeStartedAt = -1f;
             cinematicModeCount--;
         }
     }
@@ -468,6 +476,12 @@ public class RemotePlayerCinematicController : MonoBehaviour, IManagedUpdateBeha
         if (!cinematicModeActive && subscribed)
         {
             Subscribe(player, false);
+        }
+
+        if (cinematicModeActive && cinematicModeStartedAt >= 0f && Time.time - cinematicModeStartedAt > MAX_CINEMATIC_DURATION)
+        {
+            Log.Warn($"Force ending stuck remote cinematic {this.GetFullHierarchyPath()} after {MAX_CINEMATIC_DURATION} seconds.");
+            EndCinematicMode(true);
         }
     }
 }
