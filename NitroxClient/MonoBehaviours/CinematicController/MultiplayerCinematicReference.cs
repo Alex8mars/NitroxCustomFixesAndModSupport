@@ -1,7 +1,9 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using Nitrox.Model.Subnautica.DataStructures.GameLogic;
 using NitroxClient.GameLogic;
+using NitroxClient.GameLogic.PlayerLogic;
+using NitroxClient.Unity.Helper;
 using UnityEngine;
 
 namespace NitroxClient.MonoBehaviours.CinematicController;
@@ -20,7 +22,10 @@ public class MultiplayerCinematicReference : MonoBehaviour
 
     public void CallStartCinematicMode(string key, int identifier, RemotePlayer player)
     {
-        if(isEscapePod && this.Resolve<LocalPlayer>().IntroCinematicMode is IntroCinematicMode.PLAYING or IntroCinematicMode.SINGLEPLAYER) return;
+        if (isEscapePod && this.Resolve<LocalPlayer>().IntroCinematicMode is IntroCinematicMode.PLAYING or IntroCinematicMode.SINGLEPLAYER)
+        {
+            return;
+        }
 
         if (!controllerByKey.TryGetValue(key, out Dictionary<int, MultiplayerCinematicController> controllers))
         {
@@ -37,7 +42,10 @@ public class MultiplayerCinematicReference : MonoBehaviour
 
     public void CallCinematicModeEnd(string key, int identifier, RemotePlayer player)
     {
-        if(isEscapePod && this.Resolve<LocalPlayer>().IntroCinematicMode is IntroCinematicMode.PLAYING or IntroCinematicMode.SINGLEPLAYER) return;
+        if (isEscapePod && this.Resolve<LocalPlayer>().IntroCinematicMode is IntroCinematicMode.PLAYING or IntroCinematicMode.SINGLEPLAYER)
+        {
+            return;
+        }
 
         if (!controllerByKey.TryGetValue(key, out Dictionary<int, MultiplayerCinematicController> controllers))
         {
@@ -52,11 +60,14 @@ public class MultiplayerCinematicReference : MonoBehaviour
         controller.CallCinematicModeEnd(player);
     }
 
-    public static int GetCinematicControllerIdentifier(GameObject controller, GameObject reference) => controller.gameObject.GetHierarchyPath(reference).GetHashCode();
+    public static int GetCinematicControllerIdentifier(GameObject controller, GameObject reference) =>
+        controller.gameObject.GetHierarchyPath(reference).GetHashCode();
 
     public void AddController(PlayerCinematicController playerController)
     {
-        MultiplayerCinematicController[] allControllers = controllerByKey.SelectMany(n => n.Value.Select(x => x.Value)).ToArray();
+        MultiplayerCinematicController[] allControllers = controllerByKey
+            .SelectMany(n => n.Value.Select(x => x.Value))
+            .ToArray();
 
         if (!controllerByKey.TryGetValue(playerController.playerViewAnimationName, out Dictionary<int, MultiplayerCinematicController> controllers))
         {
@@ -71,7 +82,9 @@ public class MultiplayerCinematicReference : MonoBehaviour
             return;
         }
 
-        if (playerController.gameObject.GetComponent<PlayerCinematicFailsafe>() == null)
+        // Ensure a PlayerCinematicFailsafe exists without using ??
+        var failsafe = playerController.gameObject.GetComponent<PlayerCinematicFailsafe>();
+        if (failsafe == null)
         {
             playerController.gameObject.AddComponent<PlayerCinematicFailsafe>();
         }
@@ -81,5 +94,8 @@ public class MultiplayerCinematicReference : MonoBehaviour
         allControllers.ForEach(x => x.AddOtherControllers(new[] { controller }));
 
         controllers.Add(identifier, controller);
+
+        playerController.gameObject.EnsureComponent<PlayerCinematicSync>()
+                       .Initialize(playerController, this, identifier, this.Resolve<PlayerCinematics>());
     }
 }
