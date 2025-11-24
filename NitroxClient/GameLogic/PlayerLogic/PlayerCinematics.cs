@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NitroxClient.Communication.Abstract;
+using NitroxClient.GameLogic;
 using NitroxClient.MonoBehaviours;
 using Nitrox.Model.DataStructures;
 using Nitrox.Model.Packets;
@@ -30,18 +31,22 @@ public class PlayerCinematics
 
     public void StartCinematicMode(ushort playerId, NitroxId controllerID, int controllerNameHash, string key)
     {
-        if (!blacklistedKeys.Contains(key))
+        if (!CinematicSyncToggle.Enabled || blacklistedKeys.Contains(key))
         {
-            packetSender.Send(new PlayerCinematicControllerCall(playerId, controllerID, controllerNameHash, key, true));
+            return;
         }
+
+        packetSender.Send(new PlayerCinematicControllerCall(playerId, controllerID, controllerNameHash, key, true));
     }
 
     public void EndCinematicMode(ushort playerId, NitroxId controllerID, int controllerNameHash, string key)
     {
-        if (!blacklistedKeys.Contains(key))
+        if (!CinematicSyncToggle.Enabled || blacklistedKeys.Contains(key))
         {
-            packetSender.Send(new PlayerCinematicControllerCall(playerId, controllerID, controllerNameHash, key, false));
+            return;
         }
+
+        packetSender.Send(new PlayerCinematicControllerCall(playerId, controllerID, controllerNameHash, key, false));
     }
 
     public void SetLocalIntroCinematicMode(IntroCinematicMode introCinematicMode)
