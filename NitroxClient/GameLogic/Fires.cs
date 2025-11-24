@@ -68,6 +68,8 @@ namespace NitroxClient.GameLogic
                 return;
             }
 
+            fire.fireSubRoot.TryGetIdOrWarn(out NitroxId subRootId);
+
             // Temporary packet limiter
             if (!fireDouseAmount.ContainsKey(fireId))
             {
