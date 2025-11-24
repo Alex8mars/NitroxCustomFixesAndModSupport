@@ -28,6 +28,8 @@ namespace NitroxClient.Communication.Packets.Processors
             {
                 fireGameObject.RequireComponent<Fire>().Douse(packet.DouseAmount);
             }
+
+            Log.Info($"Synced Cyclops fire douse packet for {packet.Id} amount {packet.DouseAmount}");
         }
     }
 }
