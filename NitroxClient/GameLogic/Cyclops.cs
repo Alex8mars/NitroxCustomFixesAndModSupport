@@ -126,7 +126,7 @@ namespace NitroxClient.GameLogic
         /// <summary>
         /// Send out a <see cref="CyclopsDamage"/> packet
         /// </summary>
-        private void BroadcastDamageState(SubRoot subRoot, Optional<DamageInfo> info)
+        public void BroadcastDamageState(SubRoot subRoot, Optional<DamageInfo> info)
         {
             if (!subRoot.TryGetIdOrWarn(out NitroxId subId))
             {
