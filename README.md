@@ -1,0 +1,1 @@
+My edits for Nitrox, This isnt meant to do anything to the original release as i'm doing this cheaply with my limited knowlage of the codebase. (AI is being used as an helping tool as I am not great at C# and this is meant to be fixes for playing with friends.)

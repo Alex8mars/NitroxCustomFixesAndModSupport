@@ -56,7 +56,6 @@ namespace NitroxClient.GameLogic
             CyclopsFireCreated packet = new CyclopsFireCreated(fireId, subRootId, room.roomLinks.room, nodeIndex);
             packetSender.Send(packet);
             cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
-            Log.Info($"Sent Cyclops fire create for {subRootId} at {room.roomLinks.room} node {nodeIndex} ({fireId})");
         }
 
         /// <summary>
@@ -88,11 +87,6 @@ namespace NitroxClient.GameLogic
                     FireDoused packet = new FireDoused(fireId, douseAmount);
                     packetSender.Send(packet);
                     cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
-                    Log.Info($"Sent Cyclops fire douse for {fireId} (sub {subRootId}, amount {douseAmount})");
-                }
-                else
-                {
-                    fireDouseAmount[fireId] = summedDouseAmount;
                 }
             }
         }
