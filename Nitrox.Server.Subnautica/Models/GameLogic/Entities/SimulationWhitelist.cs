@@ -9,6 +9,7 @@ public class SimulationWhitelist : ISimulationWhitelist
     public static readonly HashSet<NitroxTechType> MovementWhitelist = new()
     {
         TechType.Shocker.ToDto(),
+        TechType.Bleeder.ToDto(),
         TechType.Biter.ToDto(),
         TechType.Blighter.ToDto(),
         TechType.BoneShark.ToDto(),
