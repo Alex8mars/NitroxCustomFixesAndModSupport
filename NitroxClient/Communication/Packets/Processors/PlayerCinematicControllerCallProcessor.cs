@@ -1,8 +1,8 @@
-using Nitrox.Model.DataStructures;
 using NitroxClient.Communication.Packets.Processors.Abstract;
 using NitroxClient.GameLogic;
 using NitroxClient.MonoBehaviours;
 using NitroxClient.MonoBehaviours.CinematicController;
+using Nitrox.Model.DataStructures;
 using Nitrox.Model.Helper;
 using Nitrox.Model.Packets;
 using Nitrox.Model.Subnautica.Packets;
@@ -21,6 +21,11 @@ public class PlayerCinematicControllerCallProcessor : ClientPacketProcessor<Play
 
     public override void Process(PlayerCinematicControllerCall packet)
     {
+        if (!CinematicSyncToggle.Enabled)
+        {
+            return;
+        }
+
         if (!NitroxEntity.TryGetObjectFrom(packet.ControllerID, out GameObject entity))
         {
             return; // Entity can be not spawned yet bc async.
