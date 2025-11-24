@@ -44,15 +44,16 @@ public class FMODWhitelist
             }
 
             string[] keyValuePair = entry.Split(';');
+            string eventPath = keyValuePair[0].Trim();
             if (bool.TryParse(keyValuePair[1], out bool isWhitelisted) &&
                 bool.TryParse(keyValuePair[2], out bool isGlobal) &&
                 float.TryParse(keyValuePair[3], NumberStyles.Any, CultureInfo.InvariantCulture, out float soundRadius))
             {
-                soundsWhitelist.Add(keyValuePair[0], new SoundData(isWhitelisted, isGlobal, soundRadius));
+                soundsWhitelist.Add(eventPath, new SoundData(isWhitelisted, isGlobal, soundRadius));
 
                 if (isWhitelisted)
                 {
-                    whitelistedPaths.Add(keyValuePair[0]);
+                    whitelistedPaths.Add(eventPath);
                 }
             }
             else
@@ -64,11 +65,13 @@ public class FMODWhitelist
 
     public bool IsWhitelisted(string path)
     {
-        return whitelistedPaths.Contains(path);
+        return whitelistedPaths.Contains(path.Trim());
     }
 
     public bool IsWhitelisted(string path, out float radius)
     {
+        path = path.Trim();
+
         if (soundsWhitelist.TryGetValue(path, out SoundData soundData))
         {
             radius = soundData.Radius;
@@ -81,7 +84,7 @@ public class FMODWhitelist
 
     public bool TryGetSoundData(string path, out SoundData soundData)
     {
-        return soundsWhitelist.TryGetValue(path, out soundData);
+        return soundsWhitelist.TryGetValue(path.Trim(), out soundData);
     }
 
     public ReadOnlyDictionary<string, SoundData> GetWhitelist() => new(soundsWhitelist);
