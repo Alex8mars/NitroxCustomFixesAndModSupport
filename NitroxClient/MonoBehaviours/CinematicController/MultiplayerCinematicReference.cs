@@ -71,6 +71,8 @@ public class MultiplayerCinematicReference : MonoBehaviour
             return;
         }
 
+        playerController.gameObject.GetComponent<PlayerCinematicFailsafe>() ?? playerController.gameObject.AddComponent<PlayerCinematicFailsafe>();
+
         MultiplayerCinematicController controller = MultiplayerCinematicController.Initialize(playerController);
         controller.AddOtherControllers(allControllers);
         allControllers.ForEach(x => x.AddOtherControllers(new[] { controller }));
