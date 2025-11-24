@@ -20,6 +20,7 @@ public class MultiplayerCinematicController : MonoBehaviour
     {
         if (!playerController.cinematicModeActive) // Check if local player is occupying the animator.
         {
+            CallAllCinematicModeEnd();
             GetController(player).StartCinematicMode(player);
         }
     }
