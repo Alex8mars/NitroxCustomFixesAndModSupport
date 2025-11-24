@@ -33,7 +33,7 @@ public sealed class MSStore : IGamePlatform
         return await Task.FromResult(
             ProcessEx.Start(
                 @"C:\\Windows\\System32\\cmd.exe",
-                environment,
+                environment.Select(kv => (kv.Key, kv.Value)),
                 gameDirectory,
                 @$"/C start /b {pathToGameExe} --nitrox ""{NitroxUser.LauncherPath}"" {launchArguments}",
                 createWindow: false)

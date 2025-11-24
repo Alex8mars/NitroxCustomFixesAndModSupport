@@ -31,7 +31,9 @@ public static class BepInExIntegration
         }
 
         environment["DOORSTOP_ENABLE"] = "TRUE";
-        environment[WINEDLLOVERRIDES] = GetWinHttpOverrides(environment.TryGetValue(WINEDLLOVERRIDES, out string overrides) ? overrides : null);
+        environment[WINEDLLOVERRIDES] = GetWinHttpOverrides(
+            environment.TryGetValue(WINEDLLOVERRIDES, out string overrides) ? overrides : null
+        );
     }
 
     public static void ApplyEnvironment(StringDictionary environment, string? gameRoot)
@@ -42,7 +44,9 @@ public static class BepInExIntegration
         }
 
         environment["DOORSTOP_ENABLE"] = "TRUE";
-        environment[WINEDLLOVERRIDES] = GetWinHttpOverrides(environment.ContainsKey(WINEDLLOVERRIDES) ? environment[WINEDLLOVERRIDES] : null);
+        environment[WINEDLLOVERRIDES] = GetWinHttpOverrides(
+            environment.ContainsKey(WINEDLLOVERRIDES) ? environment[WINEDLLOVERRIDES] : null
+        );
     }
 
     private static bool ShouldEnableForPlatform(string? gameRoot)
@@ -53,16 +57,19 @@ public static class BepInExIntegration
     private static string GetWinHttpOverrides(string? existingOverrides)
     {
         const string winHttpOverride = "winhttp=n,b";
+
         if (string.IsNullOrWhiteSpace(existingOverrides))
         {
             return winHttpOverride;
         }
 
-        if (existingOverrides.Contains("winhttp", StringComparison.OrdinalIgnoreCase))
+        // Replace Contains() with IndexOf() for .NET Framework compatibility
+        if (existingOverrides.IndexOf("winhttp", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             return existingOverrides;
         }
 
-        return string.Join(';', existingOverrides, winHttpOverride);
+        // Replace char separator with string separator
+        return string.Join(";", existingOverrides, winHttpOverride);
     }
 }
