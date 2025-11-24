@@ -2,6 +2,8 @@
 using System.Linq;
 using Nitrox.Model.Subnautica.DataStructures.GameLogic;
 using NitroxClient.GameLogic;
+using NitroxClient.GameLogic.PlayerLogic;
+using NitroxClient.Unity.Helper;
 using UnityEngine;
 
 namespace NitroxClient.MonoBehaviours.CinematicController;
@@ -78,5 +80,8 @@ public class MultiplayerCinematicReference : MonoBehaviour
         allControllers.ForEach(x => x.AddOtherControllers(new[] { controller }));
 
         controllers.Add(identifier, controller);
+
+        playerController.gameObject.EnsureComponent<PlayerCinematicSync>()
+                       .Initialize(playerController, this, identifier, this.Resolve<PlayerCinematics>());
     }
 }
