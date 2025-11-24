@@ -19,6 +19,7 @@ namespace NitroxClient.GameLogic
     public class Fires
     {
         private readonly IPacketSender packetSender;
+        private readonly Cyclops cyclops;
 
         /// <summary>
         /// Used to reduce the <see cref="FireDoused"/> packet spam as fires are being doused. A packet is only sent after
@@ -31,9 +32,10 @@ namespace NitroxClient.GameLogic
         /// </summary>
         private const float FIRE_DOUSE_AMOUNT_TRIGGER = 5f;
 
-        public Fires(IPacketSender packetSender)
+        public Fires(IPacketSender packetSender, Cyclops cyclops)
         {
             this.packetSender = packetSender;
+            this.cyclops = cyclops;
         }
 
         /// <summary>
@@ -53,6 +55,7 @@ namespace NitroxClient.GameLogic
 
             CyclopsFireCreated packet = new CyclopsFireCreated(fireId, subRootId, room.roomLinks.room, nodeIndex);
             packetSender.Send(packet);
+            cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
         }
 
         /// <summary>
@@ -81,6 +84,7 @@ namespace NitroxClient.GameLogic
 
                     FireDoused packet = new FireDoused(fireId, douseAmount);
                     packetSender.Send(packet);
+                    cyclops.BroadcastDamageState(fire.fireSubRoot, Optional.Empty);
                 }
             }
         }
