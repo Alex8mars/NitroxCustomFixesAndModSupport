@@ -39,26 +39,10 @@ public class PlayerCinematicSync : MonoBehaviour
             return;
         }
 
-        if (controller == null)
-        {
-            controller = GetComponent<PlayerCinematicController>();
-        }
-
-        if (reference == null)
-        {
-            reference = GetComponentInParent<MultiplayerCinematicReference>();
-        }
-
-        if (playerCinematics == null)
-        {
-            playerCinematics = this.Resolve<PlayerCinematics>();
-        }
-
-        if (localPlayer == null)
-        {
-            localPlayer = this.Resolve<LocalPlayer>();
-        }
-
+        controller = controller ?? GetComponent<PlayerCinematicController>();
+        reference = reference ?? GetComponentInParent<MultiplayerCinematicReference>();
+        playerCinematics ??= this.Resolve<PlayerCinematics>();
+        localPlayer ??= this.Resolve<LocalPlayer>();
         entity = reference ? reference.GetComponent<NitroxEntity>() : null;
 
         if (controller == null || reference == null || entity == null)
