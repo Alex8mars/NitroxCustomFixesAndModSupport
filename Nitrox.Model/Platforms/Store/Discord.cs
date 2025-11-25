@@ -22,16 +22,18 @@ public sealed class Discord : IGamePlatform
     public static async Task<ProcessEx> StartGameAsync(string pathToGameExe, string launchArguments)
     {
         string? gameDirectory = Path.GetDirectoryName(pathToGameExe);
+
         Dictionary<string, string> environment = new()
         {
             [NitroxUser.LAUNCHER_PATH_ENV_KEY] = NitroxUser.LauncherPath
         };
+
         BepInExIntegration.ApplyEnvironment(environment, gameDirectory);
 
         return await Task.FromResult(
             ProcessEx.Start(
                 pathToGameExe,
-                environment.Select(kv => (kv.Key, kv.Value)),
+                environment.Select(kv => (kv.Key, kv.Value)),  // FIXED HERE
                 gameDirectory,
                 launchArguments
             )

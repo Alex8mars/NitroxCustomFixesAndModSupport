@@ -261,7 +261,7 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             return false; // Use Steam if overlay is enabled
         }
 
-        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)))
+        if (isBepInExInstalled && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             return true;
         }
