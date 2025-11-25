@@ -212,6 +212,7 @@ public sealed class Steam : IGamePlatform
         {
             throw new Exception("Steam was not found on your machine.");
         }
+        string? gameDirectory = Path.GetDirectoryName(gameFilePath);
         // Start game through Steam so Steam Overlay loads properly. TODO: HACK - this way should be removed if we add a call SteamAPI_Init before Unity Engine shows graphics, see https://partner.steamgames.com/doc/features/overlay.
         if (!skipSteam)
         {
@@ -223,11 +224,14 @@ public sealed class Steam : IGamePlatform
                 args = $"-silent {args}";
             }
 
-            return new()
+            ProcessStartInfo startInfo = new()
             {
                 FileName = steamExe,
-                Arguments = args
+                Arguments = args,
+                UseShellExecute = false
             };
+            BepInExIntegration.ApplyEnvironment(startInfo.EnvironmentVariables, gameDirectory);
+            return startInfo;
         }
 
         // Start through game executable. This allows custom args so that VR mode can be on with Nitrox (Subnautica hard codes '-vrmode none' as default launch option and starting game through Steam from command line always uses default launch option).
@@ -236,6 +240,8 @@ public sealed class Steam : IGamePlatform
         {
             FileName = gameFilePath,
             Arguments = args,
+            UseShellExecute = false,
+            WorkingDirectory = gameDirectory,
             EnvironmentVariables =
             {
                 [NitroxUser.LAUNCHER_PATH_ENV_KEY] = NitroxUser.LauncherPath,
