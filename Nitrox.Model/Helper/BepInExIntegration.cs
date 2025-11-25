@@ -13,6 +13,7 @@ public static class BepInExIntegration
     private const string BEPINEX_CORLIB_DIRECTORY = "unstripped_corlib";
     private const string WINHTTP_DLL_NAME = "winhttp.dll";
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
+    private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
 
     public static bool IsInstalled(string? gameRoot)
     {
@@ -34,7 +35,7 @@ public static class BepInExIntegration
         );
     }
 
-    public static void ApplyEnvironment(StringDictionary environment, string? gameRoot)
+    private static bool ShouldEnableForPlatform(string? gameRoot)
     {
         ApplyEnvironmentInternal(
             gameRoot,
@@ -50,7 +51,14 @@ public static class BepInExIntegration
     {
         if (!ShouldEnableForPlatform(gameRoot))
         {
-            return;
+            yield break;
+        }
+
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
+        if (File.Exists(preloaderPath))
+        {
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
         }
 
         setValue("DOORSTOP_ENABLE", "TRUE");
@@ -64,9 +72,28 @@ public static class BepInExIntegration
         }
     }
 
-    private static bool ShouldEnableForPlatform(string? gameRoot)
+    private static string? GetBepInExRoot(string? gameRoot)
     {
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && IsInstalled(gameRoot);
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        string root = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
+        return Directory.Exists(root) ? root : null;
+    }
+
+    private static string ToWindowsPath(string path)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return path;
+        }
+
+        string fullPath = Path.GetFullPath(path);
+        return Path.DirectorySeparatorChar == '\\'
+            ? fullPath
+            : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
     }
 
     private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
@@ -131,5 +158,25 @@ public static class BepInExIntegration
 
         // Replace char separator with string separator
         return string.Join(";", existingOverrides, winHttpOverride);
+    }
+
+    private static string? BuildDllSearchDirs(string? existingValue, params string[] directories)
+    {
+        List<string> paths = new();
+
+        if (!string.IsNullOrWhiteSpace(existingValue))
+        {
+            paths.Add(existingValue);
+        }
+
+        foreach (string directory in directories)
+        {
+            if (Directory.Exists(directory))
+            {
+                paths.Add(ToWindowsPath(directory));
+            }
+        }
+
+        return paths.Count == 0 ? null : string.Join(";", paths);
     }
 }
