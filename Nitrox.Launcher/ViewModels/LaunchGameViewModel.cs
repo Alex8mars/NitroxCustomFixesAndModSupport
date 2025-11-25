@@ -233,11 +233,13 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             throw new FileNotFoundException($"Unable to find {gameInfo.ExeName}");
         }
 
+        bool isBepInExInstalled = BepInExIntegration.IsInstalled(NitroxUser.GamePath);
+
         // Start game & gaming platform if needed.
         string launchArguments = $"{keyValueStore.GetLaunchArguments(gameInfo)} {string.Join(" ", args ?? NitroxEnvironment.CommandLineArgs)}";
         ProcessEx game = NitroxUser.GamePlatform switch
         {
-            Steam => await Steam.StartGameAsync(gameExePath, launchArguments, gameInfo.SteamAppId, ShouldSkipSteam(launchArguments), keyValueStore.GetUseBigPictureMode()),
+            Steam => await Steam.StartGameAsync(gameExePath, launchArguments, gameInfo.SteamAppId, ShouldSkipSteam(launchArguments, isBepInExInstalled), keyValueStore.GetUseBigPictureMode()),
             EpicGames => await EpicGames.StartGameAsync(gameExePath, launchArguments),
             HeroicGames => await HeroicGames.StartGameAsync(gameInfo.EgsNamespace, launchArguments),
             MSStore => await MSStore.StartGameAsync(gameExePath, launchArguments),
@@ -251,7 +253,7 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
         }
     }
 
-    private bool ShouldSkipSteam(string args)
+    private bool ShouldSkipSteam(string args, bool isBepInExInstalled)
     {
         // Check if Steam overlay is enabled by user setting
         if (keyValueStore.GetUseBigPictureMode())
@@ -259,12 +261,17 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             return false; // Use Steam if overlay is enabled
         }
 
+        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)))
+        {
+            return true;
+        }
+
         if (App.InstantLaunch != null)
         {
             // Running through Steam is fine if single instance.
             return App.InstantLaunch is { PlayerNames.Length: > 1 };
         }
-        if (args.Contains("-vrmode none", StringComparison.OrdinalIgnoreCase))
+        if (args.IndexOf("-vrmode none", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             if (keyValueStore.GetIsMultipleGameInstancesAllowed())
             {
