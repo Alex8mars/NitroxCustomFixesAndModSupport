@@ -255,6 +255,11 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
 
     private bool ShouldSkipSteam(string args, bool isBepInExInstalled)
     {
+        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)))
+        {
+            return true; // Always bypass Steam when BepInEx is present so the preloader can initialize
+        }
+
         // Check if Steam overlay is enabled by user setting
         if (keyValueStore.GetUseBigPictureMode())
         {
