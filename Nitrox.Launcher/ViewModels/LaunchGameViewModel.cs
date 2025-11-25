@@ -266,6 +266,11 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             return false; // Use Steam if overlay is enabled
         }
 
+        if (isBepInExInstalled && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return true;
+        }
+
         if (App.InstantLaunch != null)
         {
             // Running through Steam is fine if single instance.
