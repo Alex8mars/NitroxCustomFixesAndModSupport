@@ -54,56 +54,7 @@ public static class BepInExIntegration
     {
         if (environment == null)
         {
-            yield break;
-        }
-
-        bool useWindowsPaths = ShouldUseWindowsPaths(bepInExRoot);
-        char dllSearchSeparator = useWindowsPaths ? ';' : Path.PathSeparator;
-
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-        if (File.Exists(preloaderPath))
-        {
-            string normalizedPreloader = NormalizePath(preloaderPath, useWindowsPaths);
-            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
-            // Ensure compatibility with older Doorstop versions that still read the legacy variable
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
-        }
-
-        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-        if (Directory.Exists(corlibOverride))
-        {
-            string normalizedCorlib = NormalizePath(corlibOverride, useWindowsPaths);
-            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
-            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
-        }
-
-        // Recreate the specific BepInEx/Doorstop variables that your original iterator
-        // version was trying to yield, but write them directly into the dictionary.
-
-        string? bepInExRoot = GetBepInExRoot(gameRoot);
-        if (bepInExRoot != null)
-        {
-            string coreDirectory = Path.Combine(bepInExRoot, "core");
-
-            // DOORSTOP_TARGET_ASSEMBLY + DOORSTOP_INVOKE_DLL_PATH
-            string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-            if (File.Exists(preloaderPath))
-            {
-                string normalizedPreloader = NormalizePath(preloaderPath);
-                environment["DOORSTOP_TARGET_ASSEMBLY"] = normalizedPreloader;
-                // Legacy/compat variable
-                environment["DOORSTOP_INVOKE_DLL_PATH"] = normalizedPreloader;
-            }
-
-            // DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE + DOORSTOP_CORLIB_OVERRIDE_PATH
-            string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-            if (Directory.Exists(corlibOverride))
-            {
-                string normalizedCorlib = NormalizePath(corlibOverride);
-                environment["DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE"] = normalizedCorlib;
-                environment["DOORSTOP_CORLIB_OVERRIDE_PATH"] = normalizedCorlib;
-            }
+            return;
         }
 
         // Reuse the shared logic so behavior matches the IDictionary-based path.
@@ -112,24 +63,6 @@ public static class BepInExIntegration
             key => environment.ContainsKey(key) ? environment[key] : null,
             (key, value) => environment[key] = value
         );
-
-        // Rebuild DOORSTOP_DLL_SEARCH_DIRS just like your original "searchDirs" logic.
-        if (bepInExRoot != null)
-        {
-            string coreDirectory = Path.Combine(bepInExRoot, "core");
-            string? searchDirs = BuildDllSearchDirs(
-                environment.ContainsKey(DOORSTOP_DLL_SEARCH_DIRS)
-                    ? environment[DOORSTOP_DLL_SEARCH_DIRS]
-                    : null,
-                coreDirectory,
-                bepInExRoot
-            );
-
-            if (!string.IsNullOrEmpty(searchDirs))
-            {
-                environment[DOORSTOP_DLL_SEARCH_DIRS] = searchDirs;
-            }
-        }
     }
 
     /// <summary>
@@ -265,11 +198,11 @@ public static class BepInExIntegration
 
     private static string GetWinHttpOverrides(string? existingOverrides)
     {
-        const string winHttpOverride = "winhttp=n,b";
+        const string WINHTTP_OVERRIDE = "winhttp=n,b";
 
         if (string.IsNullOrWhiteSpace(existingOverrides))
         {
-            return winHttpOverride;
+            return WINHTTP_OVERRIDE;
         }
 
         // Avoid duplicate winhttp entries (case-insensitive).
@@ -278,7 +211,7 @@ public static class BepInExIntegration
             return existingOverrides;
         }
 
-        return string.Join(";", existingOverrides, winHttpOverride);
+        return string.Join(";", existingOverrides, WINHTTP_OVERRIDE);
     }
 
     private static string? BuildDllSearchDirs(string? existingValue, params string[] directories)
