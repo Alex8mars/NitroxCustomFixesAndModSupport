@@ -10,7 +10,6 @@ public static class BepInExIntegration
 {
     private const string BEPINEX_DIRECTORY_NAME = "BepInEx";
     private const string BEPINEX_PRELOADER_NAME = "BepInEx.Preloader.dll";
-    private const string BEPINEX_DOORSTOP_LIB_DIRECTORY = "doorstop_libs";
     private const string BEPINEX_CORLIB_DIRECTORY = "unstripped_corlib";
     private const string WINHTTP_DLL_NAME = "winhttp.dll";
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
@@ -36,7 +35,7 @@ public static class BepInExIntegration
         );
     }
 
-    public static void ApplyEnvironment(StringDictionary environment, string? gameRoot)
+    private static bool ShouldEnableForPlatform(string? gameRoot)
     {
         ApplyEnvironmentInternal(
             gameRoot,
@@ -52,35 +51,6 @@ public static class BepInExIntegration
     {
         if (!ShouldEnableForPlatform(gameRoot))
         {
-            return;
-        }
-
-        setValue("DOORSTOP_ENABLED", "TRUE");
-        // Preserve compatibility with doorstop builds that still read the legacy flag
-        setValue("DOORSTOP_ENABLE", "TRUE");
-
-        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
-        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
-
-        foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot, getValue))
-        {
-            setValue(bepinexVar.Key, bepinexVar.Value);
-        }
-    }
-
-    private static bool ShouldEnableForPlatform(string? gameRoot)
-    {
-        return (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-               && IsInstalled(gameRoot);
-    }
-
-    private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(
-        string? gameRoot,
-        Func<string, string?> getValue)
-    {
-        string? bepInExRoot = ResolveBepInExRoot(gameRoot);
-        if (bepInExRoot == null)
-        {
             yield break;
         }
 
@@ -88,33 +58,21 @@ public static class BepInExIntegration
         string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
         if (File.Exists(preloaderPath))
         {
-            string normalizedPreloader = NormalizePath(preloaderPath);
-            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
-            // Ensure compatibility with older Doorstop versions that still read the legacy variable
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
         }
 
-        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-        if (Directory.Exists(corlibOverride))
-        {
-            string normalizedCorlib = NormalizePath(corlibOverride);
-            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
-            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
-        }
+        setValue("DOORSTOP_ENABLE", "TRUE");
 
-        string? searchDirs = BuildDllSearchDirs(
-            getValue(DOORSTOP_DLL_SEARCH_DIRS),
-            coreDirectory,
-            Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY)
-        );
+        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
+        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
 
-        if (!string.IsNullOrEmpty(searchDirs))
+        foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot))
         {
-            yield return new(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
+            setValue(bepinexVar.Key, bepinexVar.Value);
         }
     }
 
-    private static string? ResolveBepInExRoot(string? gameRoot)
+    private static string? GetBepInExRoot(string? gameRoot)
     {
         if (string.IsNullOrWhiteSpace(gameRoot))
         {
@@ -125,14 +83,62 @@ public static class BepInExIntegration
         return Directory.Exists(root) ? root : null;
     }
 
-    private static string NormalizePath(string path)
+    private static string ToWindowsPath(string path)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return path;
         }
 
-        return Path.GetFullPath(path);
+        string fullPath = Path.GetFullPath(path);
+        return Path.DirectorySeparatorChar == '\\'
+            ? fullPath
+            : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
+    {
+        string? bepInExRoot = GetBepInExRoot(gameRoot);
+        if (bepInExRoot == null)
+        {
+            yield break;
+        }
+
+        string preloaderPath = Path.Combine(bepInExRoot, "core", BEPINEX_PRELOADER_NAME);
+        if (File.Exists(preloaderPath))
+        {
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
+        }
+
+        string corlibOverride = Path.Combine(bepInExRoot, "core", BEPINEX_CORLIB_DIRECTORY);
+        if (Directory.Exists(corlibOverride))
+        {
+            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", ToWindowsPath(corlibOverride));
+        }
+    }
+
+    private static string? GetBepInExRoot(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        string root = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
+        return Directory.Exists(root) ? root : null;
+    }
+
+    private static string ToWindowsPath(string path)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return path;
+        }
+
+        string fullPath = Path.GetFullPath(path);
+        return Path.DirectorySeparatorChar == '\\'
+            ? fullPath
+            : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
     }
 
     private static string GetWinHttpOverrides(string? existingOverrides)
@@ -167,10 +173,10 @@ public static class BepInExIntegration
         {
             if (Directory.Exists(directory))
             {
-                paths.Add(NormalizePath(directory));
+                paths.Add(ToWindowsPath(directory));
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(Path.PathSeparator, paths);
+        return paths.Count == 0 ? null : string.Join(";", paths);
     }
 }
