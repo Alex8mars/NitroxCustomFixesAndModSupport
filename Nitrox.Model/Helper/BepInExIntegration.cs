@@ -31,7 +31,6 @@ public static class BepInExIntegration
 
     /// <summary>
     /// Apply BepInEx / Doorstop environment variables to a generic dictionary.
-    /// This matches your original signature.
     /// </summary>
     public static void ApplyEnvironment(IDictionary<string, string> environment, string? gameRoot)
     {
@@ -49,42 +48,66 @@ public static class BepInExIntegration
 
     /// <summary>
     /// Apply BepInEx / Doorstop env vars to a StringDictionary (used by ProcessStartInfo.EnvironmentVariables).
-    /// This is the method your Steam launcher calls.
+    /// Kept close to the original intent: it mutates the given environment in-place.
     /// </summary>
     public static void ApplyEnvironmentForStringDictionary(StringDictionary environment, string? gameRoot)
     {
         if (environment == null)
         {
-            yield break;
+            return;
         }
 
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-        if (File.Exists(preloaderPath))
+        // Recreate the specific BepInEx/Doorstop variables that your original iterator
+        // version was trying to yield, but write them directly into the dictionary.
+
+        string? bepInExRoot = GetBepInExRoot(gameRoot);
+        if (bepInExRoot != null)
         {
-            string normalizedPreloader = NormalizePath(preloaderPath);
-            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
-            // Ensure compatibility with older Doorstop versions that still read the legacy variable
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+            string coreDirectory = Path.Combine(bepInExRoot, "core");
+
+            // DOORSTOP_TARGET_ASSEMBLY + DOORSTOP_INVOKE_DLL_PATH
+            string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
+            if (File.Exists(preloaderPath))
+            {
+                string normalizedPreloader = NormalizePath(preloaderPath);
+                environment["DOORSTOP_TARGET_ASSEMBLY"] = normalizedPreloader;
+                // Legacy/compat variable
+                environment["DOORSTOP_INVOKE_DLL_PATH"] = normalizedPreloader;
+            }
+
+            // DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE + DOORSTOP_CORLIB_OVERRIDE_PATH
+            string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
+            if (Directory.Exists(corlibOverride))
+            {
+                string normalizedCorlib = NormalizePath(corlibOverride);
+                environment["DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE"] = normalizedCorlib;
+                environment["DOORSTOP_CORLIB_OVERRIDE_PATH"] = normalizedCorlib;
+            }
         }
 
-        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-        if (Directory.Exists(corlibOverride))
-        {
-            string normalizedCorlib = NormalizePath(corlibOverride);
-            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
-            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
-        }
-
+        // Reuse the shared logic so behavior matches the IDictionary-based path.
         ApplyEnvironmentInternal(
             gameRoot,
             key => environment.ContainsKey(key) ? environment[key] : null,
             (key, value) => environment[key] = value
         );
 
-        if (!string.IsNullOrEmpty(searchDirs))
+        // Rebuild DOORSTOP_DLL_SEARCH_DIRS just like your original "searchDirs" logic.
+        if (bepInExRoot != null)
         {
-            yield return new(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
+            string coreDirectory = Path.Combine(bepInExRoot, "core");
+            string? searchDirs = BuildDllSearchDirs(
+                environment.ContainsKey(DOORSTOP_DLL_SEARCH_DIRS)
+                    ? environment[DOORSTOP_DLL_SEARCH_DIRS]
+                    : null,
+                coreDirectory,
+                bepInExRoot
+            );
+
+            if (!string.IsNullOrEmpty(searchDirs))
+            {
+                environment[DOORSTOP_DLL_SEARCH_DIRS] = searchDirs;
+            }
         }
     }
 
@@ -170,7 +193,19 @@ public static class BepInExIntegration
     }
 
     /// <summary>
+    /// Normalizes a file system path to a Windows-style path usable by Doorstop.
+    /// Kept as a separate method so it matches your original style.
+    /// </summary>
+    private static string NormalizePath(string path)
+    {
+        // You can tweak this if you need a different normalization, but this
+        // is effectively what you want for Proton/Wine setups.
+        return ToWindowsPath(path);
+    }
+
+    /// <summary>
     /// Builds BepInEx-related Doorstop variables (preloader path, corlib override).
+    /// Now matches the variables your original iterator was trying to produce.
     /// </summary>
     private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
     {
@@ -180,16 +215,30 @@ public static class BepInExIntegration
             yield break;
         }
 
-        string preloaderPath = Path.Combine(bepInExRoot, "core", BEPINEX_PRELOADER_NAME);
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+
+        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
         if (File.Exists(preloaderPath))
         {
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
+            string normalizedPreloader = NormalizePath(preloaderPath);
+
+            // New-style Doorstop variable
+            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
+
+            // Legacy/compatibility variable
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
         }
 
-        string corlibOverride = Path.Combine(bepInExRoot, "core", BEPINEX_CORLIB_DIRECTORY);
+        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
         if (Directory.Exists(corlibOverride))
         {
-            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", ToWindowsPath(corlibOverride));
+            string normalizedCorlib = NormalizePath(corlibOverride);
+
+            // Mono search path override
+            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
+
+            // Corlib override path (what you had before)
+            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
         }
     }
 
