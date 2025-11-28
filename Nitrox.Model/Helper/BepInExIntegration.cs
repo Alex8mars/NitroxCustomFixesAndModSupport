@@ -15,6 +15,9 @@ public static class BepInExIntegration
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
 
+    /// <summary>
+    /// Check if BepInEx appears to be installed in the given game root.
+    /// </summary>
     public static bool IsInstalled(string? gameRoot)
     {
         if (string.IsNullOrWhiteSpace(gameRoot))
@@ -26,17 +29,35 @@ public static class BepInExIntegration
                || File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME));
     }
 
+    /// <summary>
+    /// Apply BepInEx / Doorstop environment variables to a generic dictionary.
+    /// This matches your original signature.
+    /// </summary>
     public static void ApplyEnvironment(IDictionary<string, string> environment, string? gameRoot)
     {
+        if (environment == null)
+        {
+            return;
+        }
+
         ApplyEnvironmentInternal(
             gameRoot,
-            key => environment.TryGetValue(key, out string overrides) ? overrides : null,
+            key => environment.TryGetValue(key, out string value) ? value : null,
             (key, value) => environment[key] = value
         );
     }
 
-    private static bool ShouldEnableForPlatform(string? gameRoot)
+    /// <summary>
+    /// Apply BepInEx / Doorstop env vars to a StringDictionary (used by ProcessStartInfo.EnvironmentVariables).
+    /// This is the method your Steam launcher calls.
+    /// </summary>
+    public static void ApplyEnvironmentForStringDictionary(StringDictionary environment, string? gameRoot)
     {
+        if (environment == null)
+        {
+            return;
+        }
+
         ApplyEnvironmentInternal(
             gameRoot,
             key => environment.ContainsKey(key) ? environment[key] : null,
@@ -44,31 +65,60 @@ public static class BepInExIntegration
         );
     }
 
+    /// <summary>
+    /// Decide if BepInEx should be enabled at all for this platform/game root.
+    /// For now, simply require that BepInEx is installed.
+    /// </summary>
+    private static bool ShouldEnableForPlatform(string? gameRoot)
+    {
+        return IsInstalled(gameRoot);
+    }
+
+    /// <summary>
+    /// Core logic that actually sets the environment variables using provided
+    /// get/set delegates so it works with both IDictionary and StringDictionary.
+    /// </summary>
     private static void ApplyEnvironmentInternal(
         string? gameRoot,
         Func<string, string?> getValue,
         Action<string, string> setValue)
     {
-        if (!ShouldEnableForPlatform(gameRoot))
+        if (!ShouldEnableForPlatform(gameRoot) || string.IsNullOrWhiteSpace(gameRoot))
         {
-            yield break;
+            return;
         }
 
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-        if (File.Exists(preloaderPath))
+        // Ensure BepInEx root exists.
+        string? bepInExRoot = GetBepInExRoot(gameRoot);
+        if (bepInExRoot == null)
         {
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
+            return;
         }
 
+        // Enable Doorstop.
         setValue("DOORSTOP_ENABLE", "TRUE");
 
+        // Make sure winhttp override is set correctly (for Wine/Proton).
         string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
         setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
 
+        // Apply BepInEx-specific Doorstop variables (preloader, corlib override, etc.).
         foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot))
         {
             setValue(bepinexVar.Key, bepinexVar.Value);
+        }
+
+        // Optionally extend DOORSTOP_DLL_SEARCH_DIRS to include BepInEx paths.
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string? dllSearchDirs = BuildDllSearchDirs(
+            getValue(DOORSTOP_DLL_SEARCH_DIRS),
+            coreDirectory,
+            bepInExRoot
+        );
+
+        if (!string.IsNullOrWhiteSpace(dllSearchDirs))
+        {
+            setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
         }
     }
 
@@ -96,6 +146,9 @@ public static class BepInExIntegration
             : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
     }
 
+    /// <summary>
+    /// Builds BepInEx-related Doorstop variables (preloader path, corlib override).
+    /// </summary>
     private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
     {
         string? bepInExRoot = GetBepInExRoot(gameRoot);
@@ -117,30 +170,6 @@ public static class BepInExIntegration
         }
     }
 
-    private static string? GetBepInExRoot(string? gameRoot)
-    {
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return null;
-        }
-
-        string root = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
-        return Directory.Exists(root) ? root : null;
-    }
-
-    private static string ToWindowsPath(string path)
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return path;
-        }
-
-        string fullPath = Path.GetFullPath(path);
-        return Path.DirectorySeparatorChar == '\\'
-            ? fullPath
-            : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
-    }
-
     private static string GetWinHttpOverrides(string? existingOverrides)
     {
         const string winHttpOverride = "winhttp=n,b";
@@ -150,13 +179,12 @@ public static class BepInExIntegration
             return winHttpOverride;
         }
 
-        // Replace Contains() with IndexOf() for .NET Framework compatibility
+        // Avoid duplicate winhttp entries (case-insensitive).
         if (existingOverrides.IndexOf("winhttp", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             return existingOverrides;
         }
 
-        // Replace char separator with string separator
         return string.Join(";", existingOverrides, winHttpOverride);
     }
 
