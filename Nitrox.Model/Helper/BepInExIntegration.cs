@@ -55,7 +55,25 @@ public static class BepInExIntegration
     {
         if (environment == null)
         {
-            return;
+            yield break;
+        }
+
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
+        if (File.Exists(preloaderPath))
+        {
+            string normalizedPreloader = NormalizePath(preloaderPath);
+            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
+            // Ensure compatibility with older Doorstop versions that still read the legacy variable
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+        }
+
+        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
+        if (Directory.Exists(corlibOverride))
+        {
+            string normalizedCorlib = NormalizePath(corlibOverride);
+            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
+            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
         }
 
         ApplyEnvironmentInternal(
@@ -63,6 +81,11 @@ public static class BepInExIntegration
             key => environment.ContainsKey(key) ? environment[key] : null,
             (key, value) => environment[key] = value
         );
+
+        if (!string.IsNullOrEmpty(searchDirs))
+        {
+            yield return new(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
+        }
     }
 
     /// <summary>
