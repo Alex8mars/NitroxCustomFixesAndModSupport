@@ -233,4 +233,198 @@ public static class BepInExIntegration
 
         return paths.Count == 0 ? null : string.Join(";", paths);
     }
+
+    private static string? BuildDllSearchDirs(string? existingValue, char separator, params string[] directories)
+    {
+        List<string> paths = new();
+
+        if (!string.IsNullOrWhiteSpace(existingValue))
+        {
+            paths.Add(existingValue);
+        }
+
+        foreach (string directory in directories)
+        {
+            if (Directory.Exists(directory))
+            {
+                paths.Add(Path.GetFullPath(directory));
+            }
+        }
+
+        return paths.Count == 0 ? null : string.Join(separator, paths);
+    }
+
+    private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
+    {
+        bepInExRoot = null;
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return InstallKind.None;
+        }
+
+        string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
+        if (!Directory.Exists(candidateRoot))
+        {
+            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
+        }
+
+        bepInExRoot = candidateRoot;
+
+        if (HasNativeDoorstop(bepInExRoot))
+        {
+            return InstallKind.NativeDoorstop;
+        }
+
+        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
+        // loader so winhttp overrides are still applied under Proton/Wine.
+        return InstallKind.WinHttp;
+    }
+
+    private static void ApplyNativeDoorstopEnvironment(
+        string bepInExRoot,
+        Func<string, string?> getValue,
+        Action<string, string> setValue)
+    {
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
+        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
+
+        setValue("DOORSTOP_ENABLED", "1");
+        setValue("DOORSTOP_ENABLE", "1");
+        setValue("DOORSTOP_IGNORE_DISABLED_ENV", "1");
+
+        if (File.Exists(preloaderPath))
+        {
+            string normalizedPreloader = Path.GetFullPath(preloaderPath);
+            setValue("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
+            setValue("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+        }
+
+        if (Directory.Exists(corlibOverride))
+        {
+            string normalizedCorlib = Path.GetFullPath(corlibOverride);
+            setValue("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
+            setValue("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
+        }
+
+        string? searchDirs = BuildDllSearchDirs(
+            getValue(DOORSTOP_DLL_SEARCH_DIRS),
+            Path.PathSeparator,
+            coreDirectory,
+            Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY)
+        );
+
+        if (!string.IsNullOrEmpty(searchDirs))
+        {
+            setValue(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
+        }
+
+        ApplyNativeBootstrap(bepInExRoot, corlibOverride, getValue, setValue);
+
+        string? configPath = GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot));
+        if (configPath != null)
+        {
+            setValue("DOORSTOP_CONFIG_FILE", configPath);
+        }
+    }
+
+    private static void ApplyWinHttpEnvironment(
+        string? gameRoot,
+        Func<string, string?> getValue,
+        Action<string, string> setValue)
+    {
+        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
+        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
+
+        string? configPath = GetDoorstopConfigPath(gameRoot);
+        if (configPath != null)
+        {
+            setValue("DOORSTOP_CONFIG_FILE", configPath);
+        }
+    }
+
+    private static bool HasNativeDoorstop(string bepInExRoot)
+    {
+        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
+               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
+    }
+
+    private static void ApplyNativeBootstrap(
+        string bepInExRoot,
+        string corlibOverride,
+        Func<string, string?> getValue,
+        Action<string, string> setValue)
+    {
+        string? doorstopLibrary = GetNativeDoorstopLibraryPath(bepInExRoot);
+        if (doorstopLibrary != null)
+        {
+            string ldPreload = PrependPath(doorstopLibrary, getValue("LD_PRELOAD"), ':');
+            setValue("LD_PRELOAD", ldPreload);
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                string dyldInsert = PrependPath(doorstopLibrary, getValue("DYLD_INSERT_LIBRARIES"), ':');
+                setValue("DYLD_INSERT_LIBRARIES", dyldInsert);
+            }
+        }
+
+        string libraryPath = BuildLibraryPath(bepInExRoot, corlibOverride, getValue);
+        if (!string.IsNullOrEmpty(libraryPath))
+        {
+            setValue("LD_LIBRARY_PATH", libraryPath);
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                setValue("DYLD_LIBRARY_PATH", libraryPath);
+            }
+        }
+    }
+
+    private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
+    {
+        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
+        if (File.Exists(soPath))
+        {
+            return Path.GetFullPath(soPath);
+        }
+
+        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
+        if (File.Exists(dylibPath))
+        {
+            return Path.GetFullPath(dylibPath);
+        }
+
+        return null;
+    }
+
+    private static string? BuildLibraryPath(string bepInExRoot, string corlibOverride, Func<string, string?> getValue)
+    {
+        List<string> paths = new()
+        {
+            Path.GetFullPath(bepInExRoot)
+        };
+
+        if (Directory.Exists(corlibOverride))
+        {
+            paths.Add(Path.GetFullPath(corlibOverride));
+        }
+
+        string? existing = getValue("LD_LIBRARY_PATH");
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            paths.Add(existing);
+        }
+
+        return paths.Count == 0 ? null : string.Join(':', paths);
+    }
+
+    private static string PrependPath(string pathToAdd, string? existingValue, char separator)
+    {
+        if (string.IsNullOrWhiteSpace(existingValue))
+        {
+            return pathToAdd;
+        }
+
+        return string.Join(separator, pathToAdd, existingValue);
+    }
 }
