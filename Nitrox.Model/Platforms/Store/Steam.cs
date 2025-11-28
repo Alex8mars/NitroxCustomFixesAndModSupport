@@ -230,7 +230,7 @@ public sealed class Steam : IGamePlatform
                 Arguments = args,
                 UseShellExecute = false
             };
-            BepInExIntegration.ApplyEnvironment(startInfo.EnvironmentVariables, gameDirectory);
+            BepInExIntegration.ApplyEnvironmentForStringDictionary(startInfo.EnvironmentVariables, gameDirectory);
             return startInfo;
         }
 
@@ -251,7 +251,7 @@ public sealed class Steam : IGamePlatform
                 ["ENABLE_VKBASALT"] = "0" // VKBasalt prevents Steam overlay from working
             }
         };
-        BepInExIntegration.ApplyEnvironment(result.EnvironmentVariables, Path.GetDirectoryName(gameFilePath));
+        BepInExIntegration.ApplyEnvironmentForStringDictionary(result.EnvironmentVariables, Path.GetDirectoryName(gameFilePath));
         // Start via Proton on Linux.
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
