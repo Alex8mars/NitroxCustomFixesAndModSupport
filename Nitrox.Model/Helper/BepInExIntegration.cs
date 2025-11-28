@@ -54,7 +54,28 @@ public static class BepInExIntegration
     {
         if (environment == null)
         {
-            return;
+            yield break;
+        }
+
+        bool useWindowsPaths = ShouldUseWindowsPaths(bepInExRoot);
+        char dllSearchSeparator = useWindowsPaths ? ';' : Path.PathSeparator;
+
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
+        if (File.Exists(preloaderPath))
+        {
+            string normalizedPreloader = NormalizePath(preloaderPath, useWindowsPaths);
+            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
+            // Ensure compatibility with older Doorstop versions that still read the legacy variable
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+        }
+
+        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
+        if (Directory.Exists(corlibOverride))
+        {
+            string normalizedCorlib = NormalizePath(corlibOverride, useWindowsPaths);
+            yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
+            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
         }
 
         // Recreate the specific BepInEx/Doorstop variables that your original iterator
