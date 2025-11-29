@@ -18,12 +18,15 @@ public static class BepInExIntegration
     private const string BEPINEX_DOORSTOP_LIB_DIRECTORY = "doorstop_libs";
     private static readonly string[] MANAGED_FOLDERS =
     {
-        Path.Combine("Subnautica_Data", "Managed")
+        Path.Combine("Subnautica_Data", "Managed"),
+        Path.Combine("SubnauticaZero_Data", "Managed"),
+        Path.Combine("Resources", "Data", "Managed")
     };
 
     private static readonly string[] GAME_EXECUTABLES =
     {
-        "Subnautica.exe"
+        "Subnautica.exe",
+        "SubnauticaZero.exe"
     };
 
     private enum InstallKind
@@ -267,6 +270,26 @@ public static class BepInExIntegration
         return paths.Count == 0 ? null : string.Join(separator.ToString(), paths);
     }
 
+    // >>> ADDED: implementation for HasWinHttpShim <<<
+    private static bool HasWinHttpShim(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return false;
+        }
+
+        // Classic BepInEx WinHTTP shim in the game root.
+        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
+        if (File.Exists(winHttpPath))
+        {
+            return true;
+        }
+
+        // Also treat presence of a Doorstop config as a shim indicator (e.g., Proton/Wine setups).
+        return GetDoorstopConfigPath(gameRoot) != null;
+    }
+    // <<< END ADDED >>>
+
     private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
     {
         bepInExRoot = null;
@@ -345,12 +368,8 @@ public static class BepInExIntegration
         Func<string, string?> getValue,
         Action<string, string> setValue)
     {
-        string? processPath = NormalizeToWindowsPath(
-            FindGameExecutable(gameRoot) ?? (string.IsNullOrWhiteSpace(gameRoot) ? null : Path.Combine(gameRoot, GAME_EXECUTABLES[0]))
-        );
-        string? managedFolder = NormalizeToWindowsPath(
-            FindManagedFolder(gameRoot) ?? (string.IsNullOrWhiteSpace(gameRoot) ? null : Path.Combine(gameRoot, MANAGED_FOLDERS[0]))
-        );
+        string? processPath = NormalizeToWindowsPath(FindGameExecutable(gameRoot));
+        string? managedFolder = NormalizeToWindowsPath(FindManagedFolder(gameRoot));
 
         if (!string.IsNullOrWhiteSpace(processPath))
         {
@@ -512,17 +531,6 @@ public static class BepInExIntegration
     private static bool HasNativeDoorstop(string bepInExRoot)
     {
         return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
-    }
-
-    private static bool HasWinHttpShim(string? gameRoot)
-    {
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return false;
-        }
-
-        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
-        return File.Exists(winHttpPath);
     }
 
     private static void ApplyNativeBootstrap(
