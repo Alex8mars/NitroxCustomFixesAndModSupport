@@ -521,8 +521,7 @@ public static class BepInExIntegration
             return path;
         }
 
-        return path.Replace(Path.DirectorySeparatorChar, '\\')
-                   .Replace(Path.AltDirectorySeparatorChar, '\\');
+        return ToWindowsPath(Path.GetFullPath(path));
     }
 
     private static string? NormalizeToWindowsPathList(string? pathList, char separator)
