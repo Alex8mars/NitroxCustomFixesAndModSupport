@@ -7,8 +7,11 @@ using System.Reflection;
 using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
-using BepInEx.Logging;
 using UnityEngine;
+
+// Explicit aliases so we never rely on a bare "Logging" namespace or ambiguous "Logger" symbol
+using BepLogger = BepInEx.Logging.Logger;
+using ManualLogSource = BepInEx.Logging.ManualLogSource;
 
 namespace NitroxClient.Modding.BepInEx;
 
@@ -143,7 +146,9 @@ public static class BepInExShimLoader
                     continue;
                 }
 
-                ManualLogSource logSource = Logger.CreateLogSource(metadata.GUID);
+                // Use explicit alias so there's no confusion with UnityEngine.Logger
+                ManualLogSource logSource = BepLogger.CreateLogSource(metadata.GUID);
+
                 ConfigFile config = new(Path.Combine(ConfigPath, $"{metadata.GUID}.cfg"));
                 plugins.Add(new PluginInfo
                 {
