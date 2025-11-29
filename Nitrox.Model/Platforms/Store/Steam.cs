@@ -213,6 +213,12 @@ public sealed class Steam : IGamePlatform
             throw new Exception("Steam was not found on your machine.");
         }
         string? gameDirectory = Path.GetDirectoryName(gameFilePath);
+        bool requiresDirectLaunch = BepInExIntegration.RequiresDirectLaunch(gameDirectory);
+        if (requiresDirectLaunch && !skipSteam)
+        {
+            Log.Info("BepInEx native Doorstop detected; launching game executable directly to honor preload environment.");
+            skipSteam = true;
+        }
         // Start game through Steam so Steam Overlay loads properly. TODO: HACK - this way should be removed if we add a call SteamAPI_Init before Unity Engine shows graphics, see https://partner.steamgames.com/doc/features/overlay.
         if (!skipSteam)
         {
@@ -230,7 +236,7 @@ public sealed class Steam : IGamePlatform
                 Arguments = args,
                 UseShellExecute = false
             };
-            BepInExIntegration.ApplyEnvironment(startInfo.EnvironmentVariables, gameDirectory);
+            BepInExIntegration.ApplyEnvironmentForStringDictionary(startInfo.EnvironmentVariables, gameDirectory);
             return startInfo;
         }
 
@@ -251,7 +257,7 @@ public sealed class Steam : IGamePlatform
                 ["ENABLE_VKBASALT"] = "0" // VKBasalt prevents Steam overlay from working
             }
         };
-        BepInExIntegration.ApplyEnvironment(result.EnvironmentVariables, Path.GetDirectoryName(gameFilePath));
+        BepInExIntegration.ApplyEnvironmentForStringDictionary(result.EnvironmentVariables, Path.GetDirectoryName(gameFilePath));
         // Start via Proton on Linux.
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
