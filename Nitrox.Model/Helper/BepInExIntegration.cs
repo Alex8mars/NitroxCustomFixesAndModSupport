@@ -96,37 +96,20 @@ public static class BepInExIntegration
             return;
         }
 
-        // Ensure BepInEx root exists.
-        string? bepInExRoot = GetBepInExRoot(gameRoot);
-        if (bepInExRoot == null)
+        InstallKind installKind = GetInstallKind(gameRoot, out string? bepInExRoot);
+        if (installKind == InstallKind.None)
         {
             return;
         }
 
-        // Enable Doorstop (generic switch).
-        setValue("DOORSTOP_ENABLE", "TRUE");
-
-        // Make sure winhttp override is set correctly (for Wine/Proton).
-        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
-        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
-
-        // Apply BepInEx-specific Doorstop variables (preloader, corlib override, etc.).
-        foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot))
+        switch (installKind)
         {
-            setValue(bepinexVar.Key, bepinexVar.Value);
-        }
-
-        // Optionally extend DOORSTOP_DLL_SEARCH_DIRS to include BepInEx paths.
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string? dllSearchDirs = BuildDllSearchDirs(
-            getValue(DOORSTOP_DLL_SEARCH_DIRS),
-            coreDirectory,
-            bepInExRoot
-        );
-
-        if (!string.IsNullOrWhiteSpace(dllSearchDirs))
-        {
-            setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
+            case InstallKind.NativeDoorstop:
+                ApplyNativeDoorstopEnvironment(bepInExRoot!, getValue, setValue);
+                break;
+            case InstallKind.WinHttp:
+                ApplyWinHttpEnvironment(gameRoot, bepInExRoot, getValue, setValue);
+                break;
         }
     }
 
