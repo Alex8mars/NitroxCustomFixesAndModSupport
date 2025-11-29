@@ -14,6 +14,14 @@ public static class BepInExIntegration
     private const string WINHTTP_DLL_NAME = "winhttp.dll";
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
+    private const string BEPINEX_DOORSTOP_LIB_DIRECTORY = "doorstop_libs";
+
+    private enum InstallKind
+    {
+        None,
+        WinHttp,
+        NativeDoorstop
+    }
 
     /// <summary>
     /// Check if BepInEx appears to be installed in the given game root.
@@ -231,7 +239,7 @@ public static class BepInExIntegration
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(";", paths);
+        return paths.Count == 0 ? null : string.Join(";", paths.ToArray());
     }
 
     private static string? BuildDllSearchDirs(string? existingValue, char separator, params string[] directories)
@@ -251,7 +259,7 @@ public static class BepInExIntegration
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(separator, paths);
+        return paths.Count == 0 ? null : string.Join(separator.ToString(), paths.ToArray());
     }
 
     private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
@@ -415,7 +423,7 @@ public static class BepInExIntegration
             paths.Add(existing);
         }
 
-        return paths.Count == 0 ? null : string.Join(':', paths);
+        return paths.Count == 0 ? null : string.Join(":", paths.ToArray());
     }
 
     private static string PrependPath(string pathToAdd, string? existingValue, char separator)
@@ -425,6 +433,17 @@ public static class BepInExIntegration
             return pathToAdd;
         }
 
-        return string.Join(separator, pathToAdd, existingValue);
+        return string.Join(separator.ToString(), pathToAdd, existingValue);
+    }
+
+    private static string? GetDoorstopConfigPath(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return null;
+        }
+
+        string configPath = Path.Combine(root, "doorstop_config.ini");
+        return File.Exists(configPath) ? Path.GetFullPath(configPath) : null;
     }
 }
