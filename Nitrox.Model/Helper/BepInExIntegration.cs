@@ -96,37 +96,20 @@ public static class BepInExIntegration
             return;
         }
 
-        // Ensure BepInEx root exists.
-        string? bepInExRoot = GetBepInExRoot(gameRoot);
-        if (bepInExRoot == null)
+        InstallKind installKind = GetInstallKind(gameRoot, out string? bepInExRoot);
+        if (installKind == InstallKind.None)
         {
             return;
         }
 
-        // Enable Doorstop (generic switch).
-        setValue("DOORSTOP_ENABLE", "TRUE");
-
-        // Make sure winhttp override is set correctly (for Wine/Proton).
-        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
-        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
-
-        // Apply BepInEx-specific Doorstop variables (preloader, corlib override, etc.).
-        foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot))
+        switch (installKind)
         {
-            setValue(bepinexVar.Key, bepinexVar.Value);
-        }
-
-        // Optionally extend DOORSTOP_DLL_SEARCH_DIRS to include BepInEx paths.
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string? dllSearchDirs = BuildDllSearchDirs(
-            getValue(DOORSTOP_DLL_SEARCH_DIRS),
-            coreDirectory,
-            bepInExRoot
-        );
-
-        if (!string.IsNullOrWhiteSpace(dllSearchDirs))
-        {
-            setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
+            case InstallKind.NativeDoorstop:
+                ApplyNativeDoorstopEnvironment(bepInExRoot!, getValue, setValue);
+                break;
+            case InstallKind.WinHttp:
+                ApplyWinHttpEnvironment(gameRoot, bepInExRoot, getValue, setValue);
+                break;
         }
     }
 
@@ -302,8 +285,8 @@ public static class BepInExIntegration
 
         DoorstopConfig config = DoorstopConfig.Load(GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot)));
 
-        setValue("DOORSTOP_ENABLED", config.Enabled ?? "1");
-        setValue("DOORSTOP_ENABLE", config.Enabled ?? "1");
+        setValue("DOORSTOP_ENABLED", config.Enabled ?? "TRUE");
+        setValue("DOORSTOP_ENABLE", config.Enabled ?? "TRUE");
         if (config.IgnoreDisable != null)
         {
             setValue("DOORSTOP_IGNORE_DISABLED_ENV", config.IgnoreDisable);
@@ -407,8 +390,13 @@ public static class BepInExIntegration
             setValue("DOORSTOP_CONFIG_FILE", NormalizeToWindowsPath(configPath));
         }
 
-        setValue("DOORSTOP_ENABLE", config.Enabled ?? "1");
-        setValue("DOORSTOP_ENABLED", config.Enabled ?? "1");
+        setValue("DOORSTOP_ENABLE", config.Enabled ?? "TRUE");
+        setValue("DOORSTOP_ENABLED", config.Enabled ?? "TRUE");
+
+        if (!string.IsNullOrWhiteSpace(config.IgnoreDisable))
+        {
+            setValue("DOORSTOP_IGNORE_DISABLED_ENV", config.IgnoreDisable);
+        }
 
         if (!string.IsNullOrWhiteSpace(targetAssembly))
         {
@@ -533,8 +521,7 @@ public static class BepInExIntegration
             return path;
         }
 
-        return path.Replace(Path.DirectorySeparatorChar, '\\')
-                   .Replace(Path.AltDirectorySeparatorChar, '\\');
+        return ToWindowsPath(Path.GetFullPath(path));
     }
 
     private static string? NormalizeToWindowsPathList(string? pathList, char separator)
@@ -595,20 +582,25 @@ public static class BepInExIntegration
                 {
                     case "DOORSTOP_ENABLE":
                     case "DOORSTOP_ENABLED":
+                    case "ENABLED":
                         config.Enabled = value;
                         break;
                     case "DOORSTOP_IGNORE_DISABLED_ENV":
+                    case "IGNOREDISABLESWITCH":
                         config.IgnoreDisable = value;
                         break;
                     case "DOORSTOP_TARGET_ASSEMBLY":
                     case "DOORSTOP_INVOKE_DLL_PATH":
+                    case "TARGETASSEMBLY":
                         config.TargetAssembly = value;
                         break;
                     case "DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE":
                     case "DOORSTOP_CORLIB_OVERRIDE_PATH":
+                    case "MONOPATHOVERRIDE":
                         config.CorlibOverride = value;
                         break;
                     case DOORSTOP_DLL_SEARCH_DIRS:
+                    case "DLLSEARCHPATHOVERRIDE":
                         config.DllSearchDirs = value;
                         break;
                 }
