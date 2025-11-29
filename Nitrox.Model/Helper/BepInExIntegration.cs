@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Nitrox.Model.Helper;
@@ -418,8 +419,7 @@ public static class BepInExIntegration
 
     private static bool HasNativeDoorstop(string bepInExRoot)
     {
-        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
-               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
+        return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
     }
 
     private static void ApplyNativeBootstrap(
@@ -455,16 +455,42 @@ public static class BepInExIntegration
 
     private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
     {
-        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
-        if (File.Exists(soPath))
+        string doorstopLibs = Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY);
+        string[] candidateNames =
         {
-            return Path.GetFullPath(soPath);
-        }
+            "libdoorstop.so",
+            "libdoorstop_x64.so",
+            "libdoorstop_x86.so",
+            "libdoorstop.dylib",
+            "libdoorstop_arm64.dylib"
+        };
 
-        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
-        if (File.Exists(dylibPath))
+        foreach (string directory in new[] { bepInExRoot, doorstopLibs })
         {
-            return Path.GetFullPath(dylibPath);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string candidate in candidateNames)
+            {
+                string fullPath = Path.Combine(directory, candidate);
+                if (File.Exists(fullPath))
+                {
+                    return Path.GetFullPath(fullPath);
+                }
+            }
+
+            // Fall back to any libdoorstop* file in the directory to avoid missing
+            // architecture-specific builds we haven't listed above.
+            string? wildcardMatch = Directory
+                .EnumerateFiles(directory, "libdoorstop*.*", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+
+            if (wildcardMatch != null)
+            {
+                return Path.GetFullPath(wildcardMatch);
+            }
         }
 
         return null;
