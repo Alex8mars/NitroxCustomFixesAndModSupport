@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Nitrox.Model.Helper;
@@ -15,6 +16,15 @@ public static class BepInExIntegration
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
     private const string BEPINEX_DOORSTOP_LIB_DIRECTORY = "doorstop_libs";
+    private static readonly string[] MANAGED_FOLDERS =
+    {
+        Path.Combine("Subnautica_Data", "Managed")
+    };
+
+    private static readonly string[] GAME_EXECUTABLES =
+    {
+        "Subnautica.exe"
+    };
 
     private enum InstallKind
     {
@@ -33,8 +43,17 @@ public static class BepInExIntegration
             return false;
         }
 
-        return Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME))
-               || File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME));
+        bool hasBepInExFolder = Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME));
+        bool hasWinHttpShim = HasWinHttpShim(gameRoot);
+
+        // On Windows, require the winhttp shim (or a native pack) so we don't skip Steam
+        // for an incomplete / mis-copied installation.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return hasBepInExFolder && (hasWinHttpShim || HasNativeDoorstop(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME)));
+        }
+
+        return hasBepInExFolder || hasWinHttpShim;
     }
 
     /// <summary>
@@ -259,7 +278,7 @@ public static class BepInExIntegration
         string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
         if (!Directory.Exists(candidateRoot))
         {
-            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
         }
 
         bepInExRoot = candidateRoot;
@@ -269,9 +288,89 @@ public static class BepInExIntegration
             return InstallKind.NativeDoorstop;
         }
 
-        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
-        // loader so winhttp overrides are still applied under Proton/Wine.
+        // For Windows installs, only treat the pack as available if the winhttp shim is present.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
+        }
+
+        // Non-Windows builds can still leverage the WinHttp-style env helpers under Proton/Wine.
         return InstallKind.WinHttp;
+    }
+
+    private static string? FindGameExecutable(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        foreach (string candidate in GAME_EXECUTABLES)
+        {
+            string fullPath = Path.Combine(gameRoot, candidate);
+            if (File.Exists(fullPath))
+            {
+                return Path.GetFullPath(fullPath);
+            }
+        }
+
+        string? firstExe = Directory
+            .EnumerateFiles(gameRoot, "*.exe", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault();
+
+        return firstExe != null ? Path.GetFullPath(firstExe) : null;
+    }
+
+    private static string? FindManagedFolder(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        foreach (string relativePath in MANAGED_FOLDERS)
+        {
+            string fullPath = Path.Combine(gameRoot, relativePath);
+            if (Directory.Exists(fullPath))
+            {
+                return Path.GetFullPath(fullPath);
+            }
+        }
+
+        return null;
+    }
+
+    private static void ApplyDoorstopProcessHints(
+        string? gameRoot,
+        Func<string, string?> getValue,
+        Action<string, string> setValue)
+    {
+        string? processPath = NormalizeToWindowsPath(
+            FindGameExecutable(gameRoot) ?? (string.IsNullOrWhiteSpace(gameRoot) ? null : Path.Combine(gameRoot, GAME_EXECUTABLES[0]))
+        );
+        string? managedFolder = NormalizeToWindowsPath(
+            FindManagedFolder(gameRoot) ?? (string.IsNullOrWhiteSpace(gameRoot) ? null : Path.Combine(gameRoot, MANAGED_FOLDERS[0]))
+        );
+
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            setValue("DOORSTOP_PROCESS_PATH", processPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(managedFolder))
+        {
+            setValue("DOORSTOP_MANAGED_FOLDER_DIR", managedFolder);
+        }
+
+        string? dllSearchDirs = getValue(DOORSTOP_DLL_SEARCH_DIRS);
+        if (!string.IsNullOrWhiteSpace(dllSearchDirs))
+        {
+            string normalized = NormalizeToWindowsPathList(dllSearchDirs, Path.PathSeparator);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                setValue(DOORSTOP_DLL_SEARCH_DIRS, normalized);
+            }
+        }
     }
 
     private static void ApplyNativeDoorstopEnvironment(
@@ -342,6 +441,8 @@ public static class BepInExIntegration
         {
             setValue("DOORSTOP_CONFIG_FILE", configPath);
         }
+
+        ApplyDoorstopProcessHints(gameRoot, getValue, setValue);
     }
 
     /// <summary>
@@ -360,19 +461,9 @@ public static class BepInExIntegration
         DoorstopConfig config = DoorstopConfig.Load(configPath);
 
         string? coreDirectory = string.IsNullOrWhiteSpace(bepInExRoot) ? null : Path.Combine(bepInExRoot, "core");
-        string? targetAssembly = config.TargetAssembly;
-        if (string.IsNullOrWhiteSpace(targetAssembly) && coreDirectory != null)
-        {
-            string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-            targetAssembly = File.Exists(preloaderPath) ? preloaderPath : null;
-        }
+        string? targetAssembly = EnsureDefault(config.TargetAssembly, coreDirectory, BEPINEX_PRELOADER_NAME);
 
-        string? corlibOverridePath = config.CorlibOverride;
-        if (string.IsNullOrWhiteSpace(corlibOverridePath) && coreDirectory != null)
-        {
-            string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-            corlibOverridePath = Directory.Exists(corlibOverride) ? corlibOverride : null;
-        }
+        string? corlibOverridePath = EnsureDefault(config.CorlibOverride, coreDirectory, BEPINEX_CORLIB_DIRECTORY);
 
         string? dllSearchDirs = BuildDllSearchDirs(
             config.DllSearchDirs ?? getValue(DOORSTOP_DLL_SEARCH_DIRS),
@@ -414,12 +505,24 @@ public static class BepInExIntegration
         {
             setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
         }
+
+        ApplyDoorstopProcessHints(gameRoot, getValue, setValue);
     }
 
     private static bool HasNativeDoorstop(string bepInExRoot)
     {
-        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
-               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
+        return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
+    }
+
+    private static bool HasWinHttpShim(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return false;
+        }
+
+        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
+        return File.Exists(winHttpPath);
     }
 
     private static void ApplyNativeBootstrap(
@@ -455,16 +558,42 @@ public static class BepInExIntegration
 
     private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
     {
-        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
-        if (File.Exists(soPath))
+        string doorstopLibs = Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY);
+        string[] candidateNames =
         {
-            return Path.GetFullPath(soPath);
-        }
+            "libdoorstop.so",
+            "libdoorstop_x64.so",
+            "libdoorstop_x86.so",
+            "libdoorstop.dylib",
+            "libdoorstop_arm64.dylib"
+        };
 
-        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
-        if (File.Exists(dylibPath))
+        foreach (string directory in new[] { bepInExRoot, doorstopLibs })
         {
-            return Path.GetFullPath(dylibPath);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string candidate in candidateNames)
+            {
+                string fullPath = Path.Combine(directory, candidate);
+                if (File.Exists(fullPath))
+                {
+                    return Path.GetFullPath(fullPath);
+                }
+            }
+
+            // Fall back to any libdoorstop* file in the directory to avoid missing
+            // architecture-specific builds we haven't listed above.
+            string? wildcardMatch = Directory
+                .EnumerateFiles(directory, "libdoorstop*.*", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+
+            if (wildcardMatch != null)
+            {
+                return Path.GetFullPath(wildcardMatch);
+            }
         }
 
         return null;
@@ -539,6 +668,24 @@ public static class BepInExIntegration
         }
 
         return string.Join(separator.ToString(), parts);
+    }
+
+    private static string? EnsureDefault(string? configuredValue, string? baseDirectory, string fileOrFolderName)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return configuredValue;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            return null;
+        }
+
+        string candidate = Path.Combine(baseDirectory, fileOrFolderName);
+
+        bool exists = Directory.Exists(candidate) || File.Exists(candidate);
+        return exists ? candidate : null;
     }
 
     private sealed class DoorstopConfig
