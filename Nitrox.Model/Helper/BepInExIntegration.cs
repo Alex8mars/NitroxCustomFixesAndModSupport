@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Nitrox.Model.Helper;
@@ -33,8 +34,17 @@ public static class BepInExIntegration
             return false;
         }
 
-        return Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME))
-               || File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME));
+        bool hasBepInExFolder = Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME));
+        bool hasWinHttpShim = HasWinHttpShim(gameRoot);
+
+        // On Windows, require the winhttp shim (or a native pack) so we don't skip Steam
+        // for an incomplete / mis-copied installation.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return hasBepInExFolder && (hasWinHttpShim || HasNativeDoorstop(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME)));
+        }
+
+        return hasBepInExFolder || hasWinHttpShim;
     }
 
     /// <summary>
@@ -259,7 +269,7 @@ public static class BepInExIntegration
         string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
         if (!Directory.Exists(candidateRoot))
         {
-            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
         }
 
         bepInExRoot = candidateRoot;
@@ -269,8 +279,13 @@ public static class BepInExIntegration
             return InstallKind.NativeDoorstop;
         }
 
-        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
-        // loader so winhttp overrides are still applied under Proton/Wine.
+        // For Windows installs, only treat the pack as available if the winhttp shim is present.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
+        }
+
+        // Non-Windows builds can still leverage the WinHttp-style env helpers under Proton/Wine.
         return InstallKind.WinHttp;
     }
 
@@ -418,8 +433,18 @@ public static class BepInExIntegration
 
     private static bool HasNativeDoorstop(string bepInExRoot)
     {
-        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
-               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
+        return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
+    }
+
+    private static bool HasWinHttpShim(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return false;
+        }
+
+        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
+        return File.Exists(winHttpPath);
     }
 
     private static void ApplyNativeBootstrap(
@@ -455,16 +480,42 @@ public static class BepInExIntegration
 
     private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
     {
-        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
-        if (File.Exists(soPath))
+        string doorstopLibs = Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY);
+        string[] candidateNames =
         {
-            return Path.GetFullPath(soPath);
-        }
+            "libdoorstop.so",
+            "libdoorstop_x64.so",
+            "libdoorstop_x86.so",
+            "libdoorstop.dylib",
+            "libdoorstop_arm64.dylib"
+        };
 
-        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
-        if (File.Exists(dylibPath))
+        foreach (string directory in new[] { bepInExRoot, doorstopLibs })
         {
-            return Path.GetFullPath(dylibPath);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string candidate in candidateNames)
+            {
+                string fullPath = Path.Combine(directory, candidate);
+                if (File.Exists(fullPath))
+                {
+                    return Path.GetFullPath(fullPath);
+                }
+            }
+
+            // Fall back to any libdoorstop* file in the directory to avoid missing
+            // architecture-specific builds we haven't listed above.
+            string? wildcardMatch = Directory
+                .EnumerateFiles(directory, "libdoorstop*.*", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+
+            if (wildcardMatch != null)
+            {
+                return Path.GetFullPath(wildcardMatch);
+            }
         }
 
         return null;
