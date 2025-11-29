@@ -1,3 +1,4 @@
+using NitroxClient.Modding.BepInEx;
 using NitroxClient.MonoBehaviours.Discord;
 using NitroxClient.MonoBehaviours.Gui.MainMenu;
 using UnityEngine;
@@ -17,6 +18,7 @@ public class NitroxBootstrapper : MonoBehaviour
         gameObject.AddComponent<SceneCleanerPreserve>();
         gameObject.AddComponent<NitroxMainMenuModifications>();
         gameObject.AddComponent<DiscordClient>();
+        gameObject.AddComponent<BepInExShimBehaviour>();
 
 #if DEBUG
         EnableDeveloperFeatures();
