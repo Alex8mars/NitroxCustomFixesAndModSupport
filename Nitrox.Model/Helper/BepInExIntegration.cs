@@ -16,6 +16,18 @@ public static class BepInExIntegration
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
     private const string BEPINEX_DOORSTOP_LIB_DIRECTORY = "doorstop_libs";
+    private static readonly string[] MANAGED_FOLDERS =
+    {
+        Path.Combine("Subnautica_Data", "Managed"),
+        Path.Combine("SubnauticaZero_Data", "Managed"),
+        Path.Combine("Resources", "Data", "Managed")
+    };
+
+    private static readonly string[] GAME_EXECUTABLES =
+    {
+        "Subnautica.exe",
+        "SubnauticaZero.exe"
+    };
 
     private enum InstallKind
     {
@@ -309,6 +321,77 @@ public static class BepInExIntegration
         return InstallKind.WinHttp;
     }
 
+    private static string? FindGameExecutable(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        foreach (string candidate in GAME_EXECUTABLES)
+        {
+            string fullPath = Path.Combine(gameRoot, candidate);
+            if (File.Exists(fullPath))
+            {
+                return Path.GetFullPath(fullPath);
+            }
+        }
+
+        string? firstExe = Directory
+            .EnumerateFiles(gameRoot, "*.exe", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault();
+
+        return firstExe != null ? Path.GetFullPath(firstExe) : null;
+    }
+
+    private static string? FindManagedFolder(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        foreach (string relativePath in MANAGED_FOLDERS)
+        {
+            string fullPath = Path.Combine(gameRoot, relativePath);
+            if (Directory.Exists(fullPath))
+            {
+                return Path.GetFullPath(fullPath);
+            }
+        }
+
+        return null;
+    }
+
+    private static void ApplyDoorstopProcessHints(
+        string? gameRoot,
+        Func<string, string?> getValue,
+        Action<string, string> setValue)
+    {
+        string? processPath = NormalizeToWindowsPath(FindGameExecutable(gameRoot));
+        string? managedFolder = NormalizeToWindowsPath(FindManagedFolder(gameRoot));
+
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            setValue("DOORSTOP_PROCESS_PATH", processPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(managedFolder))
+        {
+            setValue("DOORSTOP_MANAGED_FOLDER_DIR", managedFolder);
+        }
+
+        string? dllSearchDirs = getValue(DOORSTOP_DLL_SEARCH_DIRS);
+        if (!string.IsNullOrWhiteSpace(dllSearchDirs))
+        {
+            string normalized = NormalizeToWindowsPathList(dllSearchDirs, Path.PathSeparator);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                setValue(DOORSTOP_DLL_SEARCH_DIRS, normalized);
+            }
+        }
+    }
+
     private static void ApplyNativeDoorstopEnvironment(
         string bepInExRoot,
         Func<string, string?> getValue,
@@ -377,6 +460,8 @@ public static class BepInExIntegration
         {
             setValue("DOORSTOP_CONFIG_FILE", configPath);
         }
+
+        ApplyDoorstopProcessHints(gameRoot, getValue, setValue);
     }
 
     /// <summary>
@@ -449,6 +534,8 @@ public static class BepInExIntegration
         {
             setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
         }
+
+        ApplyDoorstopProcessHints(gameRoot, getValue, setValue);
     }
 
     private static bool HasNativeDoorstop(string bepInExRoot)
