@@ -34,8 +34,17 @@ public static class BepInExIntegration
             return false;
         }
 
-        return Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME))
-               || File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME));
+        bool hasBepInExFolder = Directory.Exists(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME));
+        bool hasWinHttpShim = HasWinHttpShim(gameRoot);
+
+        // On Windows, require the winhttp shim (or a native pack) so we don't skip Steam
+        // for an incomplete / mis-copied installation.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return hasBepInExFolder && (hasWinHttpShim || HasNativeDoorstop(Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME)));
+        }
+
+        return hasBepInExFolder || hasWinHttpShim;
     }
 
     /// <summary>
@@ -260,7 +269,7 @@ public static class BepInExIntegration
         string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
         if (!Directory.Exists(candidateRoot))
         {
-            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
         }
 
         bepInExRoot = candidateRoot;
@@ -270,8 +279,13 @@ public static class BepInExIntegration
             return InstallKind.NativeDoorstop;
         }
 
-        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
-        // loader so winhttp overrides are still applied under Proton/Wine.
+        // For Windows installs, only treat the pack as available if the winhttp shim is present.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return HasWinHttpShim(gameRoot) ? InstallKind.WinHttp : InstallKind.None;
+        }
+
+        // Non-Windows builds can still leverage the WinHttp-style env helpers under Proton/Wine.
         return InstallKind.WinHttp;
     }
 
