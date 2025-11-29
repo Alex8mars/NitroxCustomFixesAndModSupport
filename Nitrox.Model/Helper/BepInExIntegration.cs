@@ -103,7 +103,7 @@ public static class BepInExIntegration
             return;
         }
 
-        // Enable Doorstop.
+        // Enable Doorstop (generic switch).
         setValue("DOORSTOP_ENABLE", "TRUE");
 
         // Make sure winhttp override is set correctly (for Wine/Proton).
@@ -156,18 +156,14 @@ public static class BepInExIntegration
 
     /// <summary>
     /// Normalizes a file system path to a Windows-style path usable by Doorstop.
-    /// Kept as a separate method so it matches your original style.
     /// </summary>
     private static string NormalizePath(string path)
     {
-        // You can tweak this if you need a different normalization, but this
-        // is effectively what you want for Proton/Wine setups.
         return ToWindowsPath(path);
     }
 
     /// <summary>
     /// Builds BepInEx-related Doorstop variables (preloader path, corlib override).
-    /// Now matches the variables your original iterator was trying to produce.
     /// </summary>
     private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
     {
@@ -199,7 +195,7 @@ public static class BepInExIntegration
             // Mono search path override
             yield return new("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
 
-            // Corlib override path (what you had before)
+            // Corlib override path
             yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
         }
     }
@@ -222,6 +218,9 @@ public static class BepInExIntegration
         return string.Join(";", existingOverrides, WINHTTP_OVERRIDE);
     }
 
+    /// <summary>
+    /// Simple Windows-style DLL search path builder using ';' separator and ToWindowsPath.
+    /// </summary>
     private static string? BuildDllSearchDirs(string? existingValue, params string[] directories)
     {
         List<string> paths = new();
@@ -242,6 +241,9 @@ public static class BepInExIntegration
         return paths.Count == 0 ? null : string.Join(";", paths.ToArray());
     }
 
+    /// <summary>
+    /// Generic DLL search path builder with a custom separator (e.g. Path.PathSeparator).
+    /// </summary>
     private static string? BuildDllSearchDirs(string? existingValue, char separator, params string[] directories)
     {
         List<string> paths = new();
@@ -259,7 +261,7 @@ public static class BepInExIntegration
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(separator.ToString(), paths.ToArray());
+        return paths.Count == 0 ? null : string.Join(separator.ToString(), paths);
     }
 
     private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
@@ -297,26 +299,31 @@ public static class BepInExIntegration
         string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
         string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
 
-        setValue("DOORSTOP_ENABLED", "1");
-        setValue("DOORSTOP_ENABLE", "1");
-        setValue("DOORSTOP_IGNORE_DISABLED_ENV", "1");
+        DoorstopConfig config = DoorstopConfig.Load(GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot)));
 
-        if (File.Exists(preloaderPath))
+        setValue("DOORSTOP_ENABLED", config.Enabled ?? "1");
+        setValue("DOORSTOP_ENABLE", config.Enabled ?? "1");
+        if (config.IgnoreDisable != null)
         {
-            string normalizedPreloader = Path.GetFullPath(preloaderPath);
-            setValue("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloader);
-            setValue("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloader);
+            setValue("DOORSTOP_IGNORE_DISABLED_ENV", config.IgnoreDisable);
         }
 
-        if (Directory.Exists(corlibOverride))
+        string? targetAssembly = config.TargetAssembly ?? (File.Exists(preloaderPath) ? Path.GetFullPath(preloaderPath) : null);
+        if (!string.IsNullOrWhiteSpace(targetAssembly))
         {
-            string normalizedCorlib = Path.GetFullPath(corlibOverride);
-            setValue("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", normalizedCorlib);
-            setValue("DOORSTOP_CORLIB_OVERRIDE_PATH", normalizedCorlib);
+            setValue("DOORSTOP_TARGET_ASSEMBLY", targetAssembly);
+            setValue("DOORSTOP_INVOKE_DLL_PATH", targetAssembly);
+        }
+
+        string? corlibOverridePath = config.CorlibOverride ?? (Directory.Exists(corlibOverride) ? Path.GetFullPath(corlibOverride) : null);
+        if (!string.IsNullOrWhiteSpace(corlibOverridePath))
+        {
+            setValue("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", corlibOverridePath);
+            setValue("DOORSTOP_CORLIB_OVERRIDE_PATH", corlibOverridePath);
         }
 
         string? searchDirs = BuildDllSearchDirs(
-            getValue(DOORSTOP_DLL_SEARCH_DIRS),
+            config.DllSearchDirs ?? getValue(DOORSTOP_DLL_SEARCH_DIRS),
             Path.PathSeparator,
             coreDirectory,
             Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY)
@@ -327,12 +334,11 @@ public static class BepInExIntegration
             setValue(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
         }
 
-        ApplyNativeBootstrap(bepInExRoot, corlibOverride, getValue, setValue);
+        ApplyNativeBootstrap(bepInExRoot, corlibOverridePath, getValue, setValue);
 
-        string? configPath = GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot));
-        if (configPath != null)
+        if (config.ConfigPath != null)
         {
-            setValue("DOORSTOP_CONFIG_FILE", configPath);
+            setValue("DOORSTOP_CONFIG_FILE", config.ConfigPath);
         }
     }
 
@@ -359,7 +365,7 @@ public static class BepInExIntegration
 
     private static void ApplyNativeBootstrap(
         string bepInExRoot,
-        string corlibOverride,
+        string? corlibOverride,
         Func<string, string?> getValue,
         Action<string, string> setValue)
     {
@@ -376,7 +382,7 @@ public static class BepInExIntegration
             }
         }
 
-        string libraryPath = BuildLibraryPath(bepInExRoot, corlibOverride, getValue);
+        string? libraryPath = BuildLibraryPath(bepInExRoot, corlibOverride, getValue);
         if (!string.IsNullOrEmpty(libraryPath))
         {
             setValue("LD_LIBRARY_PATH", libraryPath);
@@ -405,14 +411,14 @@ public static class BepInExIntegration
         return null;
     }
 
-    private static string? BuildLibraryPath(string bepInExRoot, string corlibOverride, Func<string, string?> getValue)
+    private static string? BuildLibraryPath(string bepInExRoot, string? corlibOverride, Func<string, string?> getValue)
     {
         List<string> paths = new()
         {
             Path.GetFullPath(bepInExRoot)
         };
 
-        if (Directory.Exists(corlibOverride))
+        if (!string.IsNullOrWhiteSpace(corlibOverride) && Directory.Exists(corlibOverride))
         {
             paths.Add(Path.GetFullPath(corlibOverride));
         }
@@ -423,7 +429,7 @@ public static class BepInExIntegration
             paths.Add(existing);
         }
 
-        return paths.Count == 0 ? null : string.Join(":", paths.ToArray());
+        return paths.Count == 0 ? null : string.Join(":", paths);
     }
 
     private static string PrependPath(string pathToAdd, string? existingValue, char separator)
@@ -433,7 +439,8 @@ public static class BepInExIntegration
             return pathToAdd;
         }
 
-        return string.Join(separator.ToString(), pathToAdd, existingValue);
+        // Use separator.ToString() so it works on frameworks without String.Join(char, ...)
+        return string.Join(separator.ToString(), new[] { pathToAdd, existingValue });
     }
 
     private static string? GetDoorstopConfigPath(string? root)
@@ -445,466 +452,6 @@ public static class BepInExIntegration
 
         string configPath = Path.Combine(root, "doorstop_config.ini");
         return File.Exists(configPath) ? Path.GetFullPath(configPath) : null;
-    }
-
-    private static string? BuildDllSearchDirs(string? existingValue, char separator, params string[] directories)
-    {
-        List<string> paths = new();
-
-        if (!string.IsNullOrWhiteSpace(existingValue))
-        {
-            paths.Add(existingValue);
-        }
-
-        foreach (string directory in directories)
-        {
-            if (Directory.Exists(directory))
-            {
-                paths.Add(Path.GetFullPath(directory));
-            }
-        }
-
-        return paths.Count == 0 ? null : string.Join(separator, paths);
-    }
-
-    private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
-    {
-        bepInExRoot = null;
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return InstallKind.None;
-        }
-
-        string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
-        if (!Directory.Exists(candidateRoot))
-        {
-            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
-        }
-
-        bepInExRoot = candidateRoot;
-
-        if (HasNativeDoorstop(bepInExRoot))
-        {
-            return InstallKind.NativeDoorstop;
-        }
-
-        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
-        // loader so winhttp overrides are still applied under Proton/Wine.
-        return InstallKind.WinHttp;
-    }
-
-    private static void ApplyNativeDoorstopEnvironment(
-        string bepInExRoot,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-
-        DoorstopConfig config = DoorstopConfig.Load(GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot)));
-
-        setValue("DOORSTOP_ENABLED", config.Enabled ?? "1");
-        setValue("DOORSTOP_ENABLE", config.Enabled ?? "1");
-        if (config.IgnoreDisable != null)
-        {
-            setValue("DOORSTOP_IGNORE_DISABLED_ENV", config.IgnoreDisable);
-        }
-
-        string? targetAssembly = config.TargetAssembly ?? (File.Exists(preloaderPath) ? Path.GetFullPath(preloaderPath) : null);
-        if (!string.IsNullOrWhiteSpace(targetAssembly))
-        {
-            setValue("DOORSTOP_TARGET_ASSEMBLY", targetAssembly);
-            setValue("DOORSTOP_INVOKE_DLL_PATH", targetAssembly);
-        }
-
-        string? corlibOverridePath = config.CorlibOverride ?? (Directory.Exists(corlibOverride) ? Path.GetFullPath(corlibOverride) : null);
-        if (!string.IsNullOrWhiteSpace(corlibOverridePath))
-        {
-            setValue("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", corlibOverridePath);
-            setValue("DOORSTOP_CORLIB_OVERRIDE_PATH", corlibOverridePath);
-        }
-
-        string? searchDirs = BuildDllSearchDirs(
-            config.DllSearchDirs ?? getValue(DOORSTOP_DLL_SEARCH_DIRS),
-            Path.PathSeparator,
-            coreDirectory,
-            Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY)
-        );
-
-        if (!string.IsNullOrEmpty(searchDirs))
-        {
-            setValue(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
-        }
-
-        ApplyNativeBootstrap(bepInExRoot, corlibOverridePath, getValue, setValue);
-
-        if (config.ConfigPath != null)
-        {
-            setValue("DOORSTOP_CONFIG_FILE", config.ConfigPath);
-        }
-    }
-
-    private static void ApplyWinHttpEnvironment(
-        string? gameRoot,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
-        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
-
-        string? configPath = GetDoorstopConfigPath(gameRoot);
-        if (configPath != null)
-        {
-            setValue("DOORSTOP_CONFIG_FILE", configPath);
-        }
-    }
-
-    private static bool HasNativeDoorstop(string bepInExRoot)
-    {
-        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
-               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
-    }
-
-    private static void ApplyNativeBootstrap(
-        string bepInExRoot,
-        string? corlibOverride,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string? doorstopLibrary = GetNativeDoorstopLibraryPath(bepInExRoot);
-        if (doorstopLibrary != null)
-        {
-            string ldPreload = PrependPath(doorstopLibrary, getValue("LD_PRELOAD"), ':');
-            setValue("LD_PRELOAD", ldPreload);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                string dyldInsert = PrependPath(doorstopLibrary, getValue("DYLD_INSERT_LIBRARIES"), ':');
-                setValue("DYLD_INSERT_LIBRARIES", dyldInsert);
-            }
-        }
-
-        string libraryPath = BuildLibraryPath(bepInExRoot, corlibOverride, getValue);
-        if (!string.IsNullOrEmpty(libraryPath))
-        {
-            setValue("LD_LIBRARY_PATH", libraryPath);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                setValue("DYLD_LIBRARY_PATH", libraryPath);
-            }
-        }
-    }
-
-    private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
-    {
-        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
-        if (File.Exists(soPath))
-        {
-            return Path.GetFullPath(soPath);
-        }
-
-        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
-        if (File.Exists(dylibPath))
-        {
-            return Path.GetFullPath(dylibPath);
-        }
-
-        return null;
-    }
-
-    private static string? BuildLibraryPath(string bepInExRoot, string? corlibOverride, Func<string, string?> getValue)
-    {
-        List<string> paths = new()
-        {
-            Path.GetFullPath(bepInExRoot)
-        };
-
-        if (!string.IsNullOrWhiteSpace(corlibOverride) && Directory.Exists(corlibOverride))
-        {
-            paths.Add(Path.GetFullPath(corlibOverride));
-        }
-
-        string? existing = getValue("LD_LIBRARY_PATH");
-        if (!string.IsNullOrWhiteSpace(existing))
-        {
-            paths.Add(existing);
-        }
-
-        return paths.Count == 0 ? null : string.Join(':', paths);
-    }
-
-    private static string PrependPath(string pathToAdd, string? existingValue, char separator)
-    {
-        if (string.IsNullOrWhiteSpace(existingValue))
-        {
-            return pathToAdd;
-        }
-
-        return string.Join(separator, pathToAdd, existingValue);
-    }
-
-    private sealed class DoorstopConfig
-    {
-        public string? ConfigPath { get; private set; }
-        public string? Enabled { get; private set; }
-        public string? IgnoreDisable { get; private set; }
-        public string? TargetAssembly { get; private set; }
-        public string? CorlibOverride { get; private set; }
-        public string? DllSearchDirs { get; private set; }
-
-        public static DoorstopConfig Load(string? configPath)
-        {
-            DoorstopConfig config = new();
-
-            if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
-            {
-                return config;
-            }
-
-            config.ConfigPath = configPath;
-
-            foreach (string rawLine in File.ReadAllLines(configPath))
-            {
-                string line = rawLine.Trim();
-                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                int separatorIndex = line.IndexOf('=');
-                if (separatorIndex <= 0 || separatorIndex >= line.Length - 1)
-                {
-                    continue;
-                }
-
-                string key = line[..separatorIndex].Trim();
-                string value = line[(separatorIndex + 1)..].Trim();
-
-                switch (key.ToUpperInvariant())
-                {
-                    case "DOORSTOP_ENABLE":
-                    case "DOORSTOP_ENABLED":
-                        config.Enabled = value;
-                        break;
-                    case "DOORSTOP_IGNORE_DISABLED_ENV":
-                        config.IgnoreDisable = value;
-                        break;
-                    case "DOORSTOP_TARGET_ASSEMBLY":
-                    case "DOORSTOP_INVOKE_DLL_PATH":
-                        config.TargetAssembly = value;
-                        break;
-                    case "DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE":
-                    case "DOORSTOP_CORLIB_OVERRIDE_PATH":
-                        config.CorlibOverride = value;
-                        break;
-                    case DOORSTOP_DLL_SEARCH_DIRS:
-                        config.DllSearchDirs = value;
-                        break;
-                }
-            }
-
-            return config;
-        }
-    }
-
-    private static string? BuildDllSearchDirs(string? existingValue, char separator, params string[] directories)
-    {
-        List<string> paths = new();
-
-        if (!string.IsNullOrWhiteSpace(existingValue))
-        {
-            paths.Add(existingValue);
-        }
-
-        foreach (string directory in directories)
-        {
-            if (Directory.Exists(directory))
-            {
-                paths.Add(Path.GetFullPath(directory));
-            }
-        }
-
-        return paths.Count == 0 ? null : string.Join(separator, paths);
-    }
-
-    private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
-    {
-        bepInExRoot = null;
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return InstallKind.None;
-        }
-
-        string candidateRoot = Path.Combine(gameRoot, BEPINEX_DIRECTORY_NAME);
-        if (!Directory.Exists(candidateRoot))
-        {
-            return File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME)) ? InstallKind.WinHttp : InstallKind.None;
-        }
-
-        bepInExRoot = candidateRoot;
-
-        if (HasNativeDoorstop(bepInExRoot))
-        {
-            return InstallKind.NativeDoorstop;
-        }
-
-        // If a BepInEx folder is present but the native pack is not, fall back to the Windows-style
-        // loader so winhttp overrides are still applied under Proton/Wine.
-        return InstallKind.WinHttp;
-    }
-
-    private static void ApplyNativeDoorstopEnvironment(
-        string bepInExRoot,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string coreDirectory = Path.Combine(bepInExRoot, "core");
-        string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-        string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-
-        DoorstopConfig config = DoorstopConfig.Load(GetDoorstopConfigPath(Path.GetDirectoryName(bepInExRoot)));
-
-        setValue("DOORSTOP_ENABLED", config.Enabled ?? "1");
-        setValue("DOORSTOP_ENABLE", config.Enabled ?? "1");
-        if (config.IgnoreDisable != null)
-        {
-            setValue("DOORSTOP_IGNORE_DISABLED_ENV", config.IgnoreDisable);
-        }
-
-        string? targetAssembly = config.TargetAssembly ?? (File.Exists(preloaderPath) ? Path.GetFullPath(preloaderPath) : null);
-        if (!string.IsNullOrWhiteSpace(targetAssembly))
-        {
-            setValue("DOORSTOP_TARGET_ASSEMBLY", targetAssembly);
-            setValue("DOORSTOP_INVOKE_DLL_PATH", targetAssembly);
-        }
-
-        string? corlibOverridePath = config.CorlibOverride ?? (Directory.Exists(corlibOverride) ? Path.GetFullPath(corlibOverride) : null);
-        if (!string.IsNullOrWhiteSpace(corlibOverridePath))
-        {
-            setValue("DOORSTOP_MONO_DLL_SEARCH_PATH_OVERRIDE", corlibOverridePath);
-            setValue("DOORSTOP_CORLIB_OVERRIDE_PATH", corlibOverridePath);
-        }
-
-        string? searchDirs = BuildDllSearchDirs(
-            config.DllSearchDirs ?? getValue(DOORSTOP_DLL_SEARCH_DIRS),
-            Path.PathSeparator,
-            coreDirectory,
-            Path.Combine(bepInExRoot, BEPINEX_DOORSTOP_LIB_DIRECTORY)
-        );
-
-        if (!string.IsNullOrEmpty(searchDirs))
-        {
-            setValue(DOORSTOP_DLL_SEARCH_DIRS, searchDirs);
-        }
-
-        ApplyNativeBootstrap(bepInExRoot, corlibOverridePath, getValue, setValue);
-
-        if (config.ConfigPath != null)
-        {
-            setValue("DOORSTOP_CONFIG_FILE", config.ConfigPath);
-        }
-    }
-
-    private static void ApplyWinHttpEnvironment(
-        string? gameRoot,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
-        setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
-
-        string? configPath = GetDoorstopConfigPath(gameRoot);
-        if (configPath != null)
-        {
-            setValue("DOORSTOP_CONFIG_FILE", configPath);
-        }
-    }
-
-    private static bool HasNativeDoorstop(string bepInExRoot)
-    {
-        return File.Exists(Path.Combine(bepInExRoot, "libdoorstop.so"))
-               || File.Exists(Path.Combine(bepInExRoot, "libdoorstop.dylib"));
-    }
-
-    private static void ApplyNativeBootstrap(
-        string bepInExRoot,
-        string? corlibOverride,
-        Func<string, string?> getValue,
-        Action<string, string> setValue)
-    {
-        string? doorstopLibrary = GetNativeDoorstopLibraryPath(bepInExRoot);
-        if (doorstopLibrary != null)
-        {
-            string ldPreload = PrependPath(doorstopLibrary, getValue("LD_PRELOAD"), ':');
-            setValue("LD_PRELOAD", ldPreload);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                string dyldInsert = PrependPath(doorstopLibrary, getValue("DYLD_INSERT_LIBRARIES"), ':');
-                setValue("DYLD_INSERT_LIBRARIES", dyldInsert);
-            }
-        }
-
-        string libraryPath = BuildLibraryPath(bepInExRoot, corlibOverride, getValue);
-        if (!string.IsNullOrEmpty(libraryPath))
-        {
-            setValue("LD_LIBRARY_PATH", libraryPath);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                setValue("DYLD_LIBRARY_PATH", libraryPath);
-            }
-        }
-    }
-
-    private static string? GetNativeDoorstopLibraryPath(string bepInExRoot)
-    {
-        string soPath = Path.Combine(bepInExRoot, "libdoorstop.so");
-        if (File.Exists(soPath))
-        {
-            return Path.GetFullPath(soPath);
-        }
-
-        string dylibPath = Path.Combine(bepInExRoot, "libdoorstop.dylib");
-        if (File.Exists(dylibPath))
-        {
-            return Path.GetFullPath(dylibPath);
-        }
-
-        return null;
-    }
-
-    private static string? BuildLibraryPath(string bepInExRoot, string? corlibOverride, Func<string, string?> getValue)
-    {
-        List<string> paths = new()
-        {
-            Path.GetFullPath(bepInExRoot)
-        };
-
-        if (!string.IsNullOrWhiteSpace(corlibOverride) && Directory.Exists(corlibOverride))
-        {
-            paths.Add(Path.GetFullPath(corlibOverride));
-        }
-
-        string? existing = getValue("LD_LIBRARY_PATH");
-        if (!string.IsNullOrWhiteSpace(existing))
-        {
-            paths.Add(existing);
-        }
-
-        return paths.Count == 0 ? null : string.Join(':', paths);
-    }
-
-    private static string PrependPath(string pathToAdd, string? existingValue, char separator)
-    {
-        if (string.IsNullOrWhiteSpace(existingValue))
-        {
-            return pathToAdd;
-        }
-
-        return string.Join(separator, pathToAdd, existingValue);
     }
 
     private sealed class DoorstopConfig
