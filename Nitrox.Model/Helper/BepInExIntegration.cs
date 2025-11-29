@@ -270,6 +270,26 @@ public static class BepInExIntegration
         return paths.Count == 0 ? null : string.Join(separator.ToString(), paths);
     }
 
+    // >>> ADDED: implementation for HasWinHttpShim <<<
+    private static bool HasWinHttpShim(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return false;
+        }
+
+        // Classic BepInEx WinHTTP shim in the game root.
+        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
+        if (File.Exists(winHttpPath))
+        {
+            return true;
+        }
+
+        // Also treat presence of a Doorstop config as a shim indicator (e.g., Proton/Wine setups).
+        return GetDoorstopConfigPath(gameRoot) != null;
+    }
+    // <<< END ADDED >>>
+
     private static InstallKind GetInstallKind(string? gameRoot, out string? bepInExRoot)
     {
         bepInExRoot = null;
@@ -521,17 +541,6 @@ public static class BepInExIntegration
     private static bool HasNativeDoorstop(string bepInExRoot)
     {
         return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
-    }
-
-    private static bool HasWinHttpShim(string? gameRoot)
-    {
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return false;
-        }
-
-        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
-        return File.Exists(winHttpPath);
     }
 
     private static void ApplyNativeBootstrap(
