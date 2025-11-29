@@ -480,19 +480,9 @@ public static class BepInExIntegration
         DoorstopConfig config = DoorstopConfig.Load(configPath);
 
         string? coreDirectory = string.IsNullOrWhiteSpace(bepInExRoot) ? null : Path.Combine(bepInExRoot, "core");
-        string? targetAssembly = config.TargetAssembly;
-        if (string.IsNullOrWhiteSpace(targetAssembly) && coreDirectory != null)
-        {
-            string preloaderPath = Path.Combine(coreDirectory, BEPINEX_PRELOADER_NAME);
-            targetAssembly = File.Exists(preloaderPath) ? preloaderPath : null;
-        }
+        string? targetAssembly = EnsureDefault(config.TargetAssembly, coreDirectory, BEPINEX_PRELOADER_NAME);
 
-        string? corlibOverridePath = config.CorlibOverride;
-        if (string.IsNullOrWhiteSpace(corlibOverridePath) && coreDirectory != null)
-        {
-            string corlibOverride = Path.Combine(coreDirectory, BEPINEX_CORLIB_DIRECTORY);
-            corlibOverridePath = Directory.Exists(corlibOverride) ? corlibOverride : null;
-        }
+        string? corlibOverridePath = EnsureDefault(config.CorlibOverride, coreDirectory, BEPINEX_CORLIB_DIRECTORY);
 
         string? dllSearchDirs = BuildDllSearchDirs(
             config.DllSearchDirs ?? getValue(DOORSTOP_DLL_SEARCH_DIRS),
@@ -686,6 +676,24 @@ public static class BepInExIntegration
         }
 
         return string.Join(separator.ToString(), parts);
+    }
+
+    private static string? EnsureDefault(string? configuredValue, string? baseDirectory, string fileOrFolderName)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return configuredValue;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            return null;
+        }
+
+        string candidate = Path.Combine(baseDirectory, fileOrFolderName);
+
+        bool exists = Directory.Exists(candidate) || File.Exists(candidate);
+        return exists ? candidate : null;
     }
 
     private sealed class DoorstopConfig
