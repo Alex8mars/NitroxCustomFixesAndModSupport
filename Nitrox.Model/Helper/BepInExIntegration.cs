@@ -436,17 +436,6 @@ public static class BepInExIntegration
         return GetNativeDoorstopLibraryPath(bepInExRoot) != null;
     }
 
-    private static bool HasWinHttpShim(string? gameRoot)
-    {
-        if (string.IsNullOrWhiteSpace(gameRoot))
-        {
-            return false;
-        }
-
-        string winHttpPath = Path.Combine(gameRoot, WINHTTP_DLL_NAME);
-        return File.Exists(winHttpPath);
-    }
-
     private static void ApplyNativeBootstrap(
         string bepInExRoot,
         string? corlibOverride,
