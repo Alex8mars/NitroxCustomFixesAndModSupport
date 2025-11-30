@@ -8,8 +8,11 @@ using System.Reflection;
 using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
-using BepInEx.Logging;
 using UnityEngine;
+
+// Explicit aliases so we never rely on a bare "Logging" namespace or ambiguous "Logger" symbol
+using BepLogger = BepInEx.Logging.Logger;
+using ManualLogSource = BepInEx.Logging.ManualLogSource;
 
 namespace NitroxClient.Modding.BepInEx;
 
@@ -24,7 +27,6 @@ public static class BepInExShimLoader
     private static bool startedRealBepInEx;
     private static readonly string processName = Process.GetCurrentProcess().ProcessName;
     private static readonly ConcurrentDictionary<string, Assembly> loadedBepInExAssemblies = new(StringComparer.OrdinalIgnoreCase);
-    private static Assembly? realBepInExAssembly;
 
     static BepInExShimLoader()
     {
@@ -201,7 +203,9 @@ public static class BepInExShimLoader
                     continue;
                 }
 
-                ManualLogSource logSource = Logger.CreateLogSource(metadata.GUID);
+                // Use explicit alias so there's no confusion with UnityEngine.Logger
+                ManualLogSource logSource = BepLogger.CreateLogSource(metadata.GUID);
+
                 ConfigFile config = new(Path.Combine(ConfigPath, $"{metadata.GUID}.cfg"));
                 plugins.Add(new PluginInfo
                 {
@@ -270,9 +274,7 @@ public static class BepInExShimLoader
 
             try
             {
-                Assembly assembly = Assembly.LoadFrom(candidate);
-                CacheAssemblyBySimpleName(assembly);
-                return assembly;
+                return Assembly.LoadFrom(candidate);
             }
             catch (Exception ex)
             {
@@ -281,17 +283,6 @@ public static class BepInExShimLoader
         }
 
         return typeof(BepInPlugin).Assembly;
-    }
-
-    private static void CacheAssemblyBySimpleName(Assembly assembly)
-    {
-        AssemblyName? name = assembly.GetName();
-        if (name?.Name == null)
-        {
-            return;
-        }
-
-        loadedBepInExAssemblies.TryAdd(name.Name, assembly);
     }
 
     private static bool IsBaseUnityPluginType(Type type)
@@ -337,100 +328,6 @@ public static class BepInExShimLoader
         }
 
         return new BepInPlugin(guid, name, version);
-    }
-
-    private static bool TryInvokeChainloader(Assembly bepinExAssembly)
-    {
-        Type? chainloaderType = bepinExAssembly.GetType("BepInEx.Bootstrap.Chainloader");
-        if (chainloaderType == null)
-        {
-            return false;
-        }
-
-        string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? Environment.ProcessPath ?? string.Empty;
-        object?[] BuildArgs(MethodInfo method)
-        {
-            ParameterInfo[] parameters = method.GetParameters();
-            object?[] args = new object?[parameters.Length];
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                ParameterInfo param = parameters[i];
-                if (param.ParameterType == typeof(string))
-                {
-                    args[i] = exePath;
-                }
-                else if (param.HasDefaultValue)
-                {
-                    args[i] = param.DefaultValue;
-                }
-                else
-                {
-                    args[i] = param.ParameterType.IsValueType ? Activator.CreateInstance(param.ParameterType) : null;
-                }
-            }
-
-            return args;
-        }
-
-        MethodInfo? initialize = chainloaderType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .FirstOrDefault(m => m.Name.Equals("Initialize", StringComparison.OrdinalIgnoreCase));
-        MethodInfo? start = chainloaderType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .FirstOrDefault(m => m.Name.Equals("Start", StringComparison.OrdinalIgnoreCase));
-
-        if (initialize == null || start == null)
-        {
-            return false;
-        }
-
-        initialize.Invoke(null, BuildArgs(initialize));
-        start.Invoke(null, BuildArgs(start));
-        return true;
-    }
-
-    private static void TrySetPaths(Assembly bepinExAssembly)
-    {
-        try
-        {
-            Type? pathsType = bepinExAssembly.GetType("BepInEx.Paths");
-            if (pathsType == null)
-            {
-                return;
-            }
-
-            MethodInfo? setPaths = pathsType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .FirstOrDefault(m => m.Name.Equals("SetPaths", StringComparison.OrdinalIgnoreCase));
-
-            if (setPaths == null)
-            {
-                return;
-            }
-
-            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? Environment.ProcessPath ?? string.Empty;
-            ParameterInfo[] parameters = setPaths.GetParameters();
-            object?[] args = new object?[parameters.Length];
-
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                if (parameters[i].ParameterType == typeof(string))
-                {
-                    args[i] = exePath;
-                }
-                else if (parameters[i].HasDefaultValue)
-                {
-                    args[i] = parameters[i].DefaultValue;
-                }
-                else
-                {
-                    args[i] = parameters[i].ParameterType.IsValueType ? Activator.CreateInstance(parameters[i].ParameterType) : null;
-                }
-            }
-
-            setPaths.Invoke(null, args);
-        }
-        catch (Exception ex)
-        {
-            Nitrox.Model.Logger.Log.Warn($"[BepInExShim] Failed to set BepInEx paths: {ex}");
-        }
     }
 }
 
