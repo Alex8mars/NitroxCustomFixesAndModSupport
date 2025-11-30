@@ -117,13 +117,13 @@ namespace BepInEx.Bootstrap
     /// </summary>
     public sealed class PluginInfo
     {
-        public required BepInPlugin Metadata { get; init; }
+        public required BepInEx.BepInPlugin Metadata { get; init; }
 
         public required Type PluginType { get; init; }
 
-        public Logging.ManualLogSource LogSource { get; init; } = Logging.Logger.CreateLogSource("BepInExPlugin");
+        public BepInEx.Logging.ManualLogSource LogSource { get; init; } = BepInEx.Logging.Logger.CreateLogSource("BepInExPlugin");
 
-        public Configuration.ConfigFile Config { get; init; } = Configuration.ConfigFile.Empty;
+        public BepInEx.Configuration.ConfigFile Config { get; init; } = BepInEx.Configuration.ConfigFile.Empty;
     }
 }
 
@@ -281,12 +281,22 @@ namespace BepInEx.Configuration
 
         public string Key { get; }
 
-        public bool Equals(ConfigDefinition other) => string.Equals(Section, other.Section, StringComparison.OrdinalIgnoreCase)
-                                                    && string.Equals(Key, other.Key, StringComparison.OrdinalIgnoreCase);
+        public bool Equals(ConfigDefinition other) =>
+            string.Equals(Section, other.Section, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Key, other.Key, StringComparison.OrdinalIgnoreCase);
 
         public override bool Equals(object? obj) => obj is ConfigDefinition def && Equals(def);
 
-        public override int GetHashCode() => HashCode.Combine(Section.ToLowerInvariant(), Key.ToLowerInvariant());
+        public override int GetHashCode()
+        {
+            // Manual hash implementation instead of System.HashCode.Combine
+            unchecked
+            {
+                int hashSection = Section != null ? Section.ToLowerInvariant().GetHashCode() : 0;
+                int hashKey = Key != null ? Key.ToLowerInvariant().GetHashCode() : 0;
+                return (hashSection * 397) ^ hashKey;
+            }
+        }
     }
 
     public sealed class ConfigEntry<T>
