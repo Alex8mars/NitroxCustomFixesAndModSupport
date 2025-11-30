@@ -233,7 +233,8 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             throw new FileNotFoundException($"Unable to find {gameInfo.ExeName}");
         }
 
-        bool isBepInExInstalled = BepInExIntegration.IsInstalled(NitroxUser.GamePath);
+        string? gameDirectory = Path.GetDirectoryName(gameExePath);
+        bool isBepInExInstalled = BepInExIntegration.IsInstalled(gameDirectory);
 
         // Start game & gaming platform if needed.
         string launchArguments = $"{keyValueStore.GetLaunchArguments(gameInfo)} {string.Join(" ", args ?? NitroxEnvironment.CommandLineArgs)}";
