@@ -33,7 +33,19 @@ public static class BepInExShimLoader
         AppDomain.CurrentDomain.AssemblyResolve += ResolveBepInExAssembly;
     }
 
-    public static string BepInExRoot => Path.Combine(Environment.CurrentDirectory, "BepInEx");
+    private static string GameDirectory
+    {
+        get
+        {
+            string? exePath = Process.GetCurrentProcess().MainModule?.FileName
+                ?? Environment.ProcessPath
+                ?? Environment.CurrentDirectory;
+
+            return Path.GetDirectoryName(exePath) ?? Environment.CurrentDirectory;
+        }
+    }
+
+    public static string BepInExRoot => Path.Combine(GameDirectory, "BepInEx");
 
     public static string PluginPath => Path.Combine(BepInExRoot, "plugins");
 
