@@ -6,7 +6,6 @@ using NitroxClient.MonoBehaviours;
 using NitroxClient.MonoBehaviours.CinematicController;
 using NitroxClient.MonoBehaviours.Gui.HUD;
 using Nitrox.Model.DataStructures;
-using UnityEngine;
 
 namespace NitroxPatcher.Patches.Dynamic;
 
@@ -18,11 +17,6 @@ public sealed partial class PlayerCinematicController_StartCinematicMode_Patch :
 
     public static bool Prefix(PlayerCinematicController __instance, global::Player setplayer)
     {
-        if (!CinematicSyncToggle.Enabled || !CinematicSyncToggle.ConcurrencyChecksEnabled)
-        {
-            return true;
-        }
-
         if (skipPrefix || setplayer == null)
         {
             return true;
@@ -55,33 +49,11 @@ public sealed partial class PlayerCinematicController_StartCinematicMode_Patch :
     private static void ReceivedSimulationLockResponse(NitroxId id, bool lockAcquired, CinematicInteraction context)
     {
         PlayerCinematicController controller = context.Controller;
-        global::Player player = context.Player;
-        SimulationOwnership ownership = Resolve<SimulationOwnership>();
 
         if (lockAcquired)
         {
-            if (controller == null || player == null || !controller.isActiveAndEnabled || controller.cinematicModeActive || player.cinematicModeActive)
-            {
-                ownership.RequestSimulationLock(id, SimulationLockType.TRANSIENT);
-                return;
-            }
-
-            if (Time.time - context.RequestTime > 1f)
-            {
-                ownership.RequestSimulationLock(id, SimulationLockType.TRANSIENT);
-                return;
-            }
-
-            Vector3 targetPosition = controller.animatedTransform != null ? controller.animatedTransform.position : controller.transform.position;
-
-            if (Vector3.Distance(player.transform.position, targetPosition) > 3f)
-            {
-                ownership.RequestSimulationLock(id, SimulationLockType.TRANSIENT);
-                return;
-            }
-
             skipPrefix = true;
-            controller.StartCinematicMode(player);
+            controller.StartCinematicMode(context.Player);
             skipPrefix = false;
         }
         else
