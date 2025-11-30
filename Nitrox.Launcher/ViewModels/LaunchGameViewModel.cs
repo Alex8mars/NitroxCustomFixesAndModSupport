@@ -83,7 +83,7 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             }
 
             NitroxEntryPatch.Remove(NitroxUser.GamePath);
-            await StartSubnauticaAsync();
+            using ProcessEx game = await StartSubnauticaAsync();
         }
         catch (Exception ex)
         {
@@ -123,36 +123,6 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
                     return false;
                 }
 
-                // TODO: The launcher should override FileRead win32 API for the Subnautica process to give it the modified Assembly-CSharp from memory
-                try
-                {
-                    const string PATCHER_DLL_NAME = "NitroxPatcher.dll";
-
-                    string patcherDllPath = Path.Combine(NitroxUser.ExecutableRootPath ?? "", "lib", "net472", PATCHER_DLL_NAME);
-                    if (!File.Exists(patcherDllPath))
-                    {
-                        LauncherNotifier.Error("Launcher files seems corrupted, please contact us");
-                        return false;
-                    }
-
-                    File.Copy(
-                        patcherDllPath,
-                        Path.Combine(NitroxUser.GamePath, GameInfo.Subnautica.DataFolder, "Managed", PATCHER_DLL_NAME),
-                        true
-                    );
-                }
-                catch (IOException ex)
-                {
-                    Log.Error(ex, "Unable to move initialization dll to Managed folder. Still attempting to launch because it might exist from previous runs");
-                }
-
-                // Try inject Nitrox into Subnautica code.
-                if (LastFindSubnauticaTask != null)
-                {
-                    await LastFindSubnauticaTask;
-                }
-                await NitroxEntryPatch.Apply(NitroxUser.GamePath);
-
                 if (QModHelper.IsQModInstalled(NitroxUser.GamePath))
                 {
                     Log.Warn("Seems like QModManager is installed");
@@ -167,7 +137,8 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
                 return;
             }
 
-            await StartSubnauticaAsync(args);
+            ProcessEx game = await StartSubnauticaAsync(args);
+            await InjectNitroxAfterLaunchAsync(game);
         }
         catch (Exception ex)
         {
@@ -220,9 +191,9 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
         }).ContinueWithHandleError();
     }
 
-    private async Task StartSubnauticaAsync(string[]? args = null) => await StartGameAsync(GameInfo.Subnautica, args);
+    private async Task<ProcessEx> StartSubnauticaAsync(string[]? args = null) => await StartGameAsync(GameInfo.Subnautica, args);
 
-    private async Task StartGameAsync(GameInfo gameInfo, string[]? args = null)
+    private async Task<ProcessEx> StartGameAsync(GameInfo gameInfo, string[]? args = null)
     {
         LauncherNotifier.Info("Starting game");
 
@@ -233,10 +204,24 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
             throw new FileNotFoundException($"Unable to find {gameInfo.ExeName}");
         }
 
-        bool isBepInExInstalled = BepInExIntegration.IsInstalled(NitroxUser.GamePath);
+        string? gameDirectory = Path.GetDirectoryName(gameExePath);
+        string? bepInExRoot = gameDirectory ?? NitroxUser.GamePath;
+        bool isBepInExInstalled = BepInExIntegration.IsInstalled(bepInExRoot);
 
         // Start game & gaming platform if needed.
         string launchArguments = $"{keyValueStore.GetLaunchArguments(gameInfo)} {string.Join(" ", args ?? NitroxEnvironment.CommandLineArgs)}";
+
+        if (isBepInExInstalled)
+        {
+            ProcessEx? bepinexLaunch = BepInExIntegration.StartWithBepInEx(gameExePath, launchArguments);
+            if (bepinexLaunch != null)
+            {
+                return bepinexLaunch;
+            }
+
+            Log.Warn("BepInEx detected but could not be started through the shim; falling back to platform launcher");
+        }
+
         ProcessEx game = NitroxUser.GamePlatform switch
         {
             Steam => await Steam.StartGameAsync(gameExePath, launchArguments, gameInfo.SteamAppId, ShouldSkipSteam(launchArguments, isBepInExInstalled), keyValueStore.GetUseBigPictureMode()),
@@ -251,11 +236,86 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
         {
             throw new Exception($"Game failed to start through {NitroxUser.GamePlatform.Name}");
         }
+
+        return game;
+    }
+
+    private async Task InjectNitroxAfterLaunchAsync(ProcessEx game)
+    {
+        try
+        {
+            await WaitForGameToLoadAsync(game);
+            if (!game.IsRunning)
+            {
+                LauncherNotifier.Warning("Game exited before Nitrox could inject");
+                return;
+            }
+
+            await PrepareNitroxInjectionAsync();
+        }
+        finally
+        {
+            game.Dispose();
+        }
+    }
+
+    private async Task WaitForGameToLoadAsync(ProcessEx game)
+    {
+        const int waitIntervalMs = 500;
+        const int maxWaitMs = 120_000;
+
+        int waited = 0;
+        while (game.IsRunning && game.MainWindowHandle == IntPtr.Zero && waited < maxWaitMs)
+        {
+            await Task.Delay(waitIntervalMs);
+            waited += waitIntervalMs;
+        }
+
+        if (game.MainWindowHandle == IntPtr.Zero)
+        {
+            Log.Warn("Timed out waiting for the game window to appear before injecting Nitrox");
+        }
+    }
+
+    private async Task PrepareNitroxInjectionAsync()
+    {
+        // TODO: The launcher should override FileRead win32 API for the Subnautica process to give it the modified Assembly-CSharp from memory
+        try
+        {
+            const string PATCHER_DLL_NAME = "NitroxPatcher.dll";
+
+            string patcherDllPath = Path.Combine(NitroxUser.ExecutableRootPath ?? "", "lib", "net472", PATCHER_DLL_NAME);
+            if (!File.Exists(patcherDllPath))
+            {
+                LauncherNotifier.Error("Launcher files seems corrupted, please contact us");
+                return;
+            }
+
+            File.Copy(
+                patcherDllPath,
+                Path.Combine(NitroxUser.GamePath, GameInfo.Subnautica.DataFolder, "Managed", PATCHER_DLL_NAME),
+                true
+            );
+        }
+        catch (IOException ex)
+        {
+            Log.Error(ex, "Unable to move initialization dll to Managed folder. Still attempting to launch because it might exist from previous runs");
+        }
+
+        // Try inject Nitrox into Subnautica code.
+        if (LastFindSubnauticaTask != null)
+        {
+            await LastFindSubnauticaTask;
+        }
+
+        await NitroxEntryPatch.Apply(NitroxUser.GamePath);
     }
 
     private bool ShouldSkipSteam(string args, bool isBepInExInstalled)
     {
-        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)))
+        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                                   || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                                   || RuntimeInformation.IsOSPlatform(OSPlatform.OSX)))
         {
             return true; // Always bypass Steam when BepInEx is present so the preloader can initialize
         }
