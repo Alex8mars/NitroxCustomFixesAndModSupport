@@ -14,6 +14,7 @@ public static class BepInExIntegration
     private const string WINHTTP_DLL_NAME = "winhttp.dll";
     private const string WINEDLLOVERRIDES = "WINEDLLOVERRIDES";
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
+    private const string DOORSTOP_ENABLED = "DOORSTOP_ENABLED";
 
     /// <summary>
     /// Check if BepInEx appears to be installed in the given game root.
@@ -96,7 +97,7 @@ public static class BepInExIntegration
         }
 
         // Enable Doorstop.
-        setValue("DOORSTOP_ENABLE", "TRUE");
+        setValue(DOORSTOP_ENABLED, "TRUE");
 
         // Make sure winhttp override is set correctly (for Wine/Proton).
         string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
@@ -120,6 +121,8 @@ public static class BepInExIntegration
         {
             setValue(DOORSTOP_DLL_SEARCH_DIRS, dllSearchDirs);
         }
+
+        ApplyPlatformInjectionVariables(getValue, setValue, bepInExRoot);
     }
 
     private static string? GetBepInExRoot(string? gameRoot)
@@ -133,17 +136,9 @@ public static class BepInExIntegration
         return Directory.Exists(root) ? root : null;
     }
 
-    private static string ToWindowsPath(string path)
+    private static string ToPlatformPath(string path)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return path;
-        }
-
-        string fullPath = Path.GetFullPath(path);
-        return Path.DirectorySeparatorChar == '\\'
-            ? fullPath
-            : $"Z:{fullPath.Replace(Path.DirectorySeparatorChar, '\\')}";
+        return Path.GetFullPath(path);
     }
 
     /// <summary>
@@ -160,13 +155,15 @@ public static class BepInExIntegration
         string preloaderPath = Path.Combine(bepInExRoot, "core", BEPINEX_PRELOADER_NAME);
         if (File.Exists(preloaderPath))
         {
-            yield return new("DOORSTOP_INVOKE_DLL_PATH", ToWindowsPath(preloaderPath));
+            string normalizedPreloaderPath = ToPlatformPath(preloaderPath);
+            yield return new("DOORSTOP_INVOKE_DLL_PATH", normalizedPreloaderPath);
+            yield return new("DOORSTOP_TARGET_ASSEMBLY", normalizedPreloaderPath);
         }
 
         string corlibOverride = Path.Combine(bepInExRoot, "core", BEPINEX_CORLIB_DIRECTORY);
         if (Directory.Exists(corlibOverride))
         {
-            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", ToWindowsPath(corlibOverride));
+            yield return new("DOORSTOP_CORLIB_OVERRIDE_PATH", ToPlatformPath(corlibOverride));
         }
     }
 
@@ -201,10 +198,71 @@ public static class BepInExIntegration
         {
             if (Directory.Exists(directory))
             {
-                paths.Add(ToWindowsPath(directory));
+                paths.Add(ToPlatformPath(directory));
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(";", paths);
+        return paths.Count == 0 ? null : string.Join(Path.PathSeparator, paths);
+    }
+
+    private static void ApplyPlatformInjectionVariables(
+        Func<string, string?> getValue,
+        Action<string, string> setValue,
+        string bepInExRoot)
+    {
+        string doorstopLibrary = Path.Combine(bepInExRoot, "core", GetDoorstopLibraryName());
+        if (!File.Exists(doorstopLibrary))
+        {
+            return;
+        }
+
+        string coreDirectory = Path.Combine(bepInExRoot, "core");
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            setValue("LD_LIBRARY_PATH", BuildPathList(getValue("LD_LIBRARY_PATH"), bepInExRoot, coreDirectory));
+            setValue("LD_PRELOAD", BuildPathList(getValue("LD_PRELOAD"), doorstopLibrary));
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            setValue("DYLD_LIBRARY_PATH", BuildPathList(getValue("DYLD_LIBRARY_PATH"), bepInExRoot, coreDirectory));
+            setValue("DYLD_INSERT_LIBRARIES", BuildPathList(getValue("DYLD_INSERT_LIBRARIES"), doorstopLibrary));
+        }
+    }
+
+    private static string BuildPathList(string? existingValue, params string[] additions)
+    {
+        List<string> paths = new();
+
+        if (!string.IsNullOrWhiteSpace(existingValue))
+        {
+            paths.AddRange(existingValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        foreach (string addition in additions)
+        {
+            string normalized = ToPlatformPath(addition);
+            if (!paths.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                paths.Add(normalized);
+            }
+        }
+
+        return string.Join(Path.PathSeparator, paths);
+    }
+
+    private static string GetDoorstopLibraryName()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return "libdoorstop.so";
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return "libdoorstop.dylib";
+        }
+
+        return "doorstop.dll";
     }
 }
