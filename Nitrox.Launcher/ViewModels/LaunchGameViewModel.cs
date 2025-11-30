@@ -205,8 +205,7 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
         }
 
         string? gameDirectory = Path.GetDirectoryName(gameExePath);
-        string? bepInExRoot = gameDirectory ?? NitroxUser.GamePath;
-        bool isBepInExInstalled = BepInExIntegration.IsInstalled(bepInExRoot);
+        bool isBepInExInstalled = BepInExIntegration.IsInstalled(gameDirectory);
 
         // Start game & gaming platform if needed.
         string launchArguments = $"{keyValueStore.GetLaunchArguments(gameInfo)} {string.Join(" ", args ?? NitroxEnvironment.CommandLineArgs)}";
