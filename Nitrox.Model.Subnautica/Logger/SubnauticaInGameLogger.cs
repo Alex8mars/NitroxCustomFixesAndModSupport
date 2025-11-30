@@ -1,4 +1,4 @@
-﻿using Nitrox.Model.Logger;
+using Nitrox.Model.Logger;
 
 namespace Nitrox.Model.Subnautica.Logger
 {
@@ -15,7 +15,7 @@ namespace Nitrox.Model.Subnautica.Logger
             {
                 return;
             }
-            // Logs to the top-left of the screen using UWE code.
+            // Logs to the top-left of the screen using the UWE code.
             ErrorMessage.AddMessage(message);
         }
     }
