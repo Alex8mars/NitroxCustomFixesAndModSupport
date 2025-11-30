@@ -300,7 +300,9 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
 
     private bool ShouldSkipSteam(string args, bool isBepInExInstalled)
     {
-        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)))
+        if (isBepInExInstalled && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                                   || RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                                   || RuntimeInformation.IsOSPlatform(OSPlatform.OSX)))
         {
             return true; // Always bypass Steam when BepInEx is present so the preloader can initialize
         }
