@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Nitrox.Model.Platforms.OS.Shared;
 
 namespace Nitrox.Model.Helper;
 
@@ -16,9 +18,6 @@ public static class BepInExIntegration
     private const string DOORSTOP_DLL_SEARCH_DIRS = "DOORSTOP_DLL_SEARCH_DIRS";
     private const string DOORSTOP_ENABLED = "DOORSTOP_ENABLED";
 
-    /// <summary>
-    /// Check if BepInEx appears to be installed in the given game root.
-    /// </summary>
     public static bool IsInstalled(string? gameRoot)
     {
         if (string.IsNullOrWhiteSpace(gameRoot))
@@ -30,10 +29,6 @@ public static class BepInExIntegration
                || File.Exists(Path.Combine(gameRoot, WINHTTP_DLL_NAME));
     }
 
-    /// <summary>
-    /// Apply BepInEx / Doorstop environment variables to a generic dictionary.
-    /// This matches your original signature.
-    /// </summary>
     public static void ApplyEnvironment(IDictionary<string, string> environment, string? gameRoot)
     {
         if (environment == null)
@@ -48,10 +43,6 @@ public static class BepInExIntegration
         );
     }
 
-    /// <summary>
-    /// Apply BepInEx / Doorstop env vars to a StringDictionary (used by ProcessStartInfo.EnvironmentVariables).
-    /// This is the method your Steam launcher calls.
-    /// </summary>
     public static void ApplyEnvironmentForStringDictionary(StringDictionary environment, string? gameRoot)
     {
         if (environment == null)
@@ -66,30 +57,54 @@ public static class BepInExIntegration
         );
     }
 
-    /// <summary>
-    /// Decide if BepInEx should be enabled at all for this platform/game root.
-    /// For now, simply require that BepInEx is installed.
-    /// </summary>
+    public static ProcessEx? StartWithBepInEx(string gameFilePath, string launchArguments)
+    {
+        if (string.IsNullOrWhiteSpace(gameFilePath))
+        {
+            return null;
+        }
+
+        string? gameRoot = Path.GetDirectoryName(gameFilePath);
+        string? bepInExRoot = GetBepInExRoot(gameRoot);
+        if (bepInExRoot == null)
+        {
+            return null;
+        }
+
+        ProcessStartInfo startInfo = new()
+        {
+            FileName = gameFilePath,
+            Arguments = launchArguments,
+            WorkingDirectory = gameRoot,
+            UseShellExecute = false
+        };
+
+        ApplyEnvironmentInternal(
+            gameRoot,
+            key => startInfo.EnvironmentVariables.ContainsKey(key) ? startInfo.EnvironmentVariables[key] : null,
+            (key, value) => startInfo.EnvironmentVariables[key] = value,
+            preferDoorstopLibs: true
+        );
+
+        return ProcessEx.From(startInfo);
+    }
+
     private static bool ShouldEnableForPlatform(string? gameRoot)
     {
         return IsInstalled(gameRoot);
     }
 
-    /// <summary>
-    /// Core logic that actually sets the environment variables using provided
-    /// get/set delegates so it works with both IDictionary and StringDictionary.
-    /// </summary>
     private static void ApplyEnvironmentInternal(
         string? gameRoot,
         Func<string, string?> getValue,
-        Action<string, string> setValue)
+        Action<string, string> setValue,
+        bool preferDoorstopLibs = false)
     {
         if (!ShouldEnableForPlatform(gameRoot) || string.IsNullOrWhiteSpace(gameRoot))
         {
             return;
         }
 
-        // Ensure BepInEx root exists.
         string? bepInExRoot = GetBepInExRoot(gameRoot);
         if (bepInExRoot == null)
         {
@@ -99,22 +114,22 @@ public static class BepInExIntegration
         // Enable Doorstop.
         setValue(DOORSTOP_ENABLED, "TRUE");
 
-        // Make sure winhttp override is set correctly (for Wine/Proton).
         string overrides = getValue(WINEDLLOVERRIDES) ?? string.Empty;
         setValue(WINEDLLOVERRIDES, GetWinHttpOverrides(overrides));
 
-        // Apply BepInEx-specific Doorstop variables (preloader, corlib override, etc.).
         foreach (KeyValuePair<string, string> bepinexVar in GetBepInExDoorstopVariables(gameRoot))
         {
             setValue(bepinexVar.Key, bepinexVar.Value);
         }
 
-        // Optionally extend DOORSTOP_DLL_SEARCH_DIRS to include BepInEx paths.
         string coreDirectory = Path.Combine(bepInExRoot, "core");
+        string? doorstopLibsDirectory = Path.Combine(bepInExRoot, "doorstop_libs");
+
         string? dllSearchDirs = BuildDllSearchDirs(
             getValue(DOORSTOP_DLL_SEARCH_DIRS),
             coreDirectory,
-            bepInExRoot
+            bepInExRoot,
+            doorstopLibsDirectory
         );
 
         if (!string.IsNullOrWhiteSpace(dllSearchDirs))
@@ -141,9 +156,6 @@ public static class BepInExIntegration
         return Path.GetFullPath(path);
     }
 
-    /// <summary>
-    /// Builds BepInEx-related Doorstop variables (preloader path, corlib override).
-    /// </summary>
     private static IEnumerable<KeyValuePair<string, string>> GetBepInExDoorstopVariables(string? gameRoot)
     {
         string? bepInExRoot = GetBepInExRoot(gameRoot);
@@ -176,7 +188,6 @@ public static class BepInExIntegration
             return winHttpOverride;
         }
 
-        // Avoid duplicate winhttp entries (case-insensitive).
         if (existingOverrides.IndexOf("winhttp", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             return existingOverrides;
@@ -185,7 +196,7 @@ public static class BepInExIntegration
         return string.Join(";", existingOverrides, winHttpOverride);
     }
 
-    private static string? BuildDllSearchDirs(string? existingValue, params string[] directories)
+    private static string? BuildDllSearchDirs(string? existingValue, params string?[] directories)
     {
         List<string> paths = new();
 
@@ -194,9 +205,9 @@ public static class BepInExIntegration
             paths.Add(existingValue);
         }
 
-        foreach (string directory in directories)
+        foreach (string? directory in directories)
         {
-            if (Directory.Exists(directory))
+            if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
             {
                 paths.Add(ToPlatformPath(directory));
             }

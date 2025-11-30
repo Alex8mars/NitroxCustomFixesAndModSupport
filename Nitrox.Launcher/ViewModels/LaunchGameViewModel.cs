@@ -209,6 +209,18 @@ internal partial class LaunchGameViewModel(DialogService dialogService, ServerSe
 
         // Start game & gaming platform if needed.
         string launchArguments = $"{keyValueStore.GetLaunchArguments(gameInfo)} {string.Join(" ", args ?? NitroxEnvironment.CommandLineArgs)}";
+
+        if (isBepInExInstalled)
+        {
+            ProcessEx? bepinexLaunch = BepInExIntegration.StartWithBepInEx(gameExePath, launchArguments);
+            if (bepinexLaunch != null)
+            {
+                return bepinexLaunch;
+            }
+
+            Log.Warn("BepInEx detected but could not be started through the shim; falling back to platform launcher");
+        }
+
         ProcessEx game = NitroxUser.GamePlatform switch
         {
             Steam => await Steam.StartGameAsync(gameExePath, launchArguments, gameInfo.SteamAppId, ShouldSkipSteam(launchArguments, isBepInExInstalled), keyValueStore.GetUseBigPictureMode()),
