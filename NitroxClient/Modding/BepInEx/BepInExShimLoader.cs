@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -21,6 +22,7 @@ public static class BepInExShimLoader
     private static bool initialized;
     private static bool attemptedScan;
     private static readonly string processName = Process.GetCurrentProcess().ProcessName;
+    private static readonly ConcurrentDictionary<string, Assembly> loadedBepInExAssemblies = new(StringComparer.OrdinalIgnoreCase);
 
     static BepInExShimLoader()
     {
@@ -64,8 +66,13 @@ public static class BepInExShimLoader
         {
             try
             {
-                BaseUnityPlugin instance = (BaseUnityPlugin)host.AddComponent(plugin.PluginType);
-                instance.InitializeShimContext(plugin.Metadata, plugin.LogSource, plugin.Config);
+                Component component = host.AddComponent(plugin.PluginType);
+
+                if (component is BaseUnityPlugin shimInstance)
+                {
+                    shimInstance.InitializeShimContext(plugin.Metadata, plugin.LogSource, plugin.Config);
+                }
+
                 plugin.LogSource.LogInfo($"Loaded BepInEx plugin {plugin.Metadata.GUID} ({plugin.Metadata.Name} {plugin.Metadata.Version})");
             }
             catch (Exception ex)
@@ -126,12 +133,12 @@ public static class BepInExShimLoader
             Assembly pluginAssembly = Assembly.Load(raw);
             foreach (Type type in pluginAssembly.GetTypes())
             {
-                if (!typeof(BaseUnityPlugin).IsAssignableFrom(type) || type.IsAbstract)
+                if (!IsBaseUnityPluginType(type))
                 {
                     continue;
                 }
 
-                BepInPlugin? metadata = type.GetCustomAttribute<BepInPlugin>();
+                BepInPlugin? metadata = TryReadMetadata(type);
                 if (metadata == null)
                 {
                     continue;
@@ -162,13 +169,19 @@ public static class BepInExShimLoader
 
     private static bool IsProcessAllowed(MemberInfo type)
     {
-        BepInProcess[] restrictions = type.GetCustomAttributes<BepInProcess>(true).ToArray();
-        if (restrictions.Length == 0)
+        IEnumerable<Attribute> restrictions = type
+            .GetCustomAttributes(true)
+            .OfType<Attribute>()
+            .Where(attr => attr.GetType().FullName?.EndsWith("BepInProcess", StringComparison.OrdinalIgnoreCase) == true);
+
+        if (!restrictions.Any())
         {
             return true;
         }
 
-        return restrictions.Any(r => r.ProcessName.Equals(processName, StringComparison.OrdinalIgnoreCase));
+        return restrictions
+            .Select(r => r.GetType().GetProperty("ProcessName")?.GetValue(r) as string)
+            .Any(name => name != null && name.Equals(processName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static Assembly? ResolveBepInExAssembly(object? sender, ResolveEventArgs args)
@@ -181,10 +194,85 @@ public static class BepInExShimLoader
 
         if (name.Equals("BepInEx", StringComparison.OrdinalIgnoreCase) || name.StartsWith("BepInEx.", StringComparison.OrdinalIgnoreCase))
         {
-            return typeof(BepInPlugin).Assembly;
+            return loadedBepInExAssemblies.GetOrAdd(name, LoadBepInExAssemblyFromDisk);
         }
 
         return null;
+    }
+
+    private static Assembly LoadBepInExAssemblyFromDisk(string simpleName)
+    {
+        static string BuildCandidatePath(params string[] parts) => Path.Combine(parts);
+
+        string[] candidates =
+        {
+            BuildCandidatePath(BepInExRoot, "core", simpleName + ".dll"),
+            BuildCandidatePath(BepInExRoot, simpleName + ".dll")
+        };
+
+        foreach (string candidate in candidates)
+        {
+            if (!File.Exists(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                return Assembly.LoadFrom(candidate);
+            }
+            catch (Exception ex)
+            {
+                Nitrox.Model.Logger.Log.Warn($"[BepInExShim] Failed to load BepInEx assembly {candidate}: {ex}");
+            }
+        }
+
+        return typeof(BepInPlugin).Assembly;
+    }
+
+    private static bool IsBaseUnityPluginType(Type type)
+    {
+        if (type.IsAbstract || !typeof(MonoBehaviour).IsAssignableFrom(type))
+        {
+            return false;
+        }
+
+        Type? current = type;
+        while (current != null)
+        {
+            if (string.Equals(current.FullName, "BepInEx.BaseUnityPlugin", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = current.BaseType;
+        }
+
+        return false;
+    }
+
+    private static BepInPlugin? TryReadMetadata(MemberInfo type)
+    {
+        Attribute? metadata = type
+            .GetCustomAttributes(true)
+            .OfType<Attribute>()
+            .FirstOrDefault(attr => attr.GetType().FullName is string fullName && fullName.EndsWith("BepInPlugin", StringComparison.OrdinalIgnoreCase));
+
+        if (metadata == null)
+        {
+            return null;
+        }
+
+        string? guid = metadata.GetType().GetProperty("GUID")?.GetValue(metadata) as string;
+        string? name = metadata.GetType().GetProperty("Name")?.GetValue(metadata) as string;
+        string? version = metadata.GetType().GetProperty("Version")?.GetValue(metadata) as string;
+
+        if (string.IsNullOrWhiteSpace(guid) || string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        return new BepInPlugin(guid, name, version);
     }
 }
 
