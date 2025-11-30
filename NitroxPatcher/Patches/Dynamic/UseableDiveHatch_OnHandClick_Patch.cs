@@ -1,11 +1,23 @@
 using System.Reflection;
+using HarmonyLib;
 using NitroxClient.MonoBehaviours.CinematicController;
 
 namespace NitroxPatcher.Patches.Dynamic;
 
 public sealed class UseableDiveHatch_OnHandClick_Patch : NitroxPatch, IDynamicPatch
 {
-    private static readonly MethodInfo TARGET_METHOD = Reflect.Method((UseableDiveHatch t) => t.OnHandClick(default));
+    private static readonly MethodInfo TARGET_METHOD =
+        Reflect.Method((UseableDiveHatch t) => t.OnHandClick(default));
+
+    // Implement the abstract method from NitroxPatch
+    public override void Patch(Harmony harmony)
+    {
+        harmony.Patch(
+            TARGET_METHOD,
+            prefix: new HarmonyMethod(typeof(UseableDiveHatch_OnHandClick_Patch).GetMethod(nameof(Prefix))),
+            postfix: new HarmonyMethod(typeof(UseableDiveHatch_OnHandClick_Patch).GetMethod(nameof(Postfix)))
+        );
+    }
 
     public static bool Prefix(UseableDiveHatch __instance)
     {
@@ -22,8 +34,9 @@ public sealed class UseableDiveHatch_OnHandClick_Patch : NitroxPatch, IDynamicPa
 
     public static void Postfix(UseableDiveHatch __instance)
     {
-        bool cinematicRunning = (__instance.enterCinematicController != null && __instance.enterCinematicController.cinematicModeActive) ||
-                                (__instance.exitCinematicController != null && __instance.exitCinematicController.cinematicModeActive);
+        bool cinematicRunning =
+            (__instance.enterCinematicController != null && __instance.enterCinematicController.cinematicModeActive) ||
+            (__instance.exitCinematicController != null && __instance.exitCinematicController.cinematicModeActive);
 
         if (!cinematicRunning)
         {
