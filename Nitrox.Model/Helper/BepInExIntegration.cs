@@ -202,7 +202,8 @@ public static class BepInExIntegration
             }
         }
 
-        return paths.Count == 0 ? null : string.Join(Path.PathSeparator, paths);
+        // Use string separator and IEnumerable<string> overload for compatibility.
+        return paths.Count == 0 ? null : string.Join(Path.PathSeparator.ToString(), paths);
     }
 
     private static void ApplyPlatformInjectionVariables(
@@ -236,19 +237,33 @@ public static class BepInExIntegration
 
         if (!string.IsNullOrWhiteSpace(existingValue))
         {
-            paths.AddRange(existingValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+            // Use char[] separator overload for older frameworks.
+            string[] split = existingValue.Split(
+                new[] { Path.PathSeparator },
+                StringSplitOptions.RemoveEmptyEntries
+            );
+
+            paths.AddRange(split);
         }
 
         foreach (string addition in additions)
         {
             string normalized = ToPlatformPath(addition);
-            if (!paths.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+
+            // Case-insensitive contains using List.Exists, since List<T>.Contains
+            // does not take an IEqualityComparer in older frameworks.
+            bool alreadyPresent = paths.Exists(
+                p => string.Equals(p, normalized, StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (!alreadyPresent)
             {
                 paths.Add(normalized);
             }
         }
 
-        return string.Join(Path.PathSeparator, paths);
+        // Use string separator and IEnumerable<string> overload for compatibility.
+        return string.Join(Path.PathSeparator.ToString(), paths);
     }
 
     private static string GetDoorstopLibraryName()
