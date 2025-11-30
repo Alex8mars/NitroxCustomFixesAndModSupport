@@ -24,6 +24,7 @@ public static class BepInExShimLoader
     private static readonly List<PluginInfo> plugins = new();
     private static bool initialized;
     private static bool attemptedScan;
+    private static bool startedRealBepInEx;
     private static readonly string processName = Process.GetCurrentProcess().ProcessName;
     private static readonly ConcurrentDictionary<string, Assembly> loadedBepInExAssemblies = new(StringComparer.OrdinalIgnoreCase);
 
@@ -50,6 +51,10 @@ public static class BepInExShimLoader
 
         initialized = true;
         TryEnsureFolders();
+        if (TryStartRealBepInEx())
+        {
+            return;
+        }
         ScanForPlugins();
     }
 
@@ -58,6 +63,11 @@ public static class BepInExShimLoader
     /// </summary>
     public static void Bootstrap(GameObject host)
     {
+        if (startedRealBepInEx)
+        {
+            return;
+        }
+
         if (host == null)
         {
             return;
@@ -103,6 +113,46 @@ public static class BepInExShimLoader
         {
             Nitrox.Model.Logger.Log.Warn($"[BepInExShim] Unable to create BepInEx folders: {ex}");
         }
+    }
+
+    private static bool TryStartRealBepInEx()
+    {
+        if (startedRealBepInEx)
+        {
+            return true;
+        }
+
+        string[] candidates =
+        {
+            Path.Combine(BepInExRoot, "core", "BepInEx.dll"),
+            Path.Combine(BepInExRoot, "BepInEx.dll")
+        };
+
+        string? candidatePath = candidates.FirstOrDefault(File.Exists);
+        if (candidatePath == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            realBepInExAssembly = Assembly.LoadFrom(candidatePath);
+            CacheAssemblyBySimpleName(realBepInExAssembly);
+            TrySetPaths(realBepInExAssembly);
+            if (TryInvokeChainloader(realBepInExAssembly))
+            {
+                startedRealBepInEx = true;
+                attemptedScan = true;
+                Nitrox.Model.Logger.Log.Info("[BepInExShim] Detected external BepInEx installation; deferring plugin load to it.");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Nitrox.Model.Logger.Log.Warn($"[BepInExShim] Failed to start external BepInEx: {ex}");
+        }
+
+        return false;
     }
 
     private static void ScanForPlugins()
