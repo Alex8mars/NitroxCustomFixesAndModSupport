@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using Nitrox.Model.DataStructures.Unity;
 using Nitrox.Model.Subnautica.DataStructures.GameLogic.Entities;
-using Nitrox.Model.Subnautica.Packets;
 using Nitrox.Server.Subnautica.Models.Packets.Processors.Core;
 using Nitrox.Server.Subnautica.Models.GameLogic;
 using Nitrox.Server.Subnautica.Models.GameLogic.Entities;
@@ -25,8 +23,6 @@ public class VehicleMovementsPacketProcessor : AuthenticatedPacketProcessor<Vehi
 
     public override void Process(VehicleMovements packet, Player player)
     {
-        List<(MovementData movementData, WorldEntity worldEntity)> visibleMovementData = [];
-
         for (int i = packet.Data.Count - 1; i >= 0; i--)
         {
             MovementData movementData = packet.Data[i];
@@ -40,8 +36,6 @@ public class VehicleMovementsPacketProcessor : AuthenticatedPacketProcessor<Vehi
             {
                 worldEntity.Transform.Position = movementData.Position;
                 worldEntity.Transform.Rotation = movementData.Rotation;
-
-                visibleMovementData.Add((movementData, worldEntity));
 
                 if (movementData is DrivenVehicleMovementData)
                 {
@@ -60,24 +54,9 @@ public class VehicleMovementsPacketProcessor : AuthenticatedPacketProcessor<Vehi
             }
         }
 
-        if (visibleMovementData.Count > 0)
+        if (packet.Data.Count > 0)
         {
-            foreach (Player otherPlayer in playerManager.GetConnectedPlayersExcept(player))
-            {
-                List<MovementData> visibleMovements = [];
-                foreach ((MovementData movementData, WorldEntity worldEntity) in visibleMovementData)
-                {
-                    if (otherPlayer.CanSee(worldEntity))
-                    {
-                        visibleMovements.Add(movementData);
-                    }
-                }
-
-                if (visibleMovements.Count > 0)
-                {
-                    otherPlayer.SendPacket(new VehicleMovements(visibleMovements, packet.RealTime));
-                }
-            }
+            playerManager.SendPacketToOtherPlayers(packet, player);
         }
     }
 }

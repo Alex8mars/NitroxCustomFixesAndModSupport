@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Nitrox.Model.DataStructures;
 using Nitrox.Model.Subnautica.DataStructures;
 using Nitrox.Model.Subnautica.DataStructures.GameLogic.Entities;
-using NitroxClient.Modding;
 using UnityEngine;
 using UWE;
 using static NitroxClient.Extensions.GameObjectExtensions;
@@ -124,13 +123,6 @@ public class DefaultWorldEntitySpawner : IWorldEntitySpawner, IWorldEntitySyncSp
     /// <inheritdoc cref="RequestPrefab(TechType, TaskResult{GameObject})"/>
     public static IEnumerator RequestPrefab(string classId, TaskResult<GameObject> result)
     {
-        if (ModdedCreatureRegistry.TryGetPrefab(classId, out GameObject moddedPrefab))
-        {
-            prefabCacheByClassId[classId] = moddedPrefab;
-            result.Set(moddedPrefab);
-            yield break;
-        }
-
         if (prefabCacheByClassId.TryGetValue(classId, out GameObject prefab))
         {
             result.Set(prefab);
@@ -147,13 +139,6 @@ public class DefaultWorldEntitySpawner : IWorldEntitySpawner, IWorldEntitySyncSp
 
     public static IEnumerator CreateGameObject(TechType techType, string classId, NitroxId nitroxId, TaskResult<GameObject> result)
     {
-        if (ModdedCreatureRegistry.TryGetPrefab(classId, out GameObject moddedPrefab))
-        {
-            prefabCacheByClassId[classId] = moddedPrefab;
-            result.Set(SpawnFromPrefab(moddedPrefab, nitroxId));
-            yield break;
-        }
-
         IPrefabRequest prefabCoroutine = PrefabDatabase.GetPrefabAsync(classId);
         yield return prefabCoroutine;
         if (prefabCoroutine.TryGetPrefab(out GameObject prefab))
